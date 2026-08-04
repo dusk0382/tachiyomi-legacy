@@ -1,0 +1,94 @@
+name: Release Builder
+on:
+  push:
+    branches:
+      - 'master'
+      - 'main'
+      - 'release'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-debug:
+    name: Build debug app
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v7
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          java-version: 17
+          distribution: temurin
+
+      - name: Set up gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Build debug app
+        run: ./gradlew assembleDebug
+
+      - name: Upload debug APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TachiyomiLegacy-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+  build:
+    name: Build release app
+    runs-on: ubuntu-latest
+
+    env:
+      SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+      ALIAS: ${{ secrets.ALIAS }}
+      KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v7
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          java-version: 17
+          distribution: temurin
+
+      - name: Set up gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Build app
+        run: ./gradlew assembleRelease
+
+      - name: Sign APK
+        if: ${{ env.SIGNING_KEY != '' }}
+        uses: r0adkll/sign-android-release@v1
+        with:
+          releaseDirectory: app/build/outputs/apk/release
+          signingKeyBase64: ${{ env.SIGNING_KEY }}
+          alias: ${{ env.ALIAS }}
+          keyStorePassword: ${{ env.KEY_STORE_PASSWORD }}
+          keyPassword: ${{ env.KEY_PASSWORD }}
+        env:
+          BUILD_TOOLS_VERSION: '35.0.1'
+
+      - name: Clean up build artifacts
+        run: |
+          set -e
+
+          if ls app/build/outputs/apk/release/*-signed.apk >/dev/null 2>&1; then
+            mv app/build/outputs/apk/release/*-signed.apk TachiyomiLegacy.apk
+          else
+            mv app/build/outputs/apk/release/app-release-unsigned.apk TachiyomiLegacy.apk
+          fi
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TachiyomiLegacy-armeabi-v7a
+          path: TachiyomiLegacy.apk
+          if-no-files-found: error

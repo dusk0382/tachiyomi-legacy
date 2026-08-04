@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="24dp"
+    android:background="@color/dark_surface">
+
+    <TextView
+        android:id="@+id/titleText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Ingrese PIN"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:textColor="@color/text_primary"
+        android:gravity="center"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:id="@+id/hintText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Ingrese su PIN de 4 dígitos"
+        android:textSize="14sp"
+        android:textColor="@color/text_secondary"
+        android:gravity="center"
+        android:layout_marginBottom="16dp" />
+
+    <TextView
+        android:id="@+id/pinDisplay"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:background="@color/dark_bg"
+        android:textColor="@color/text_primary"
+        android:textSize="24sp"
+        android:gravity="center"
+        android:letterSpacing="0.5"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:id="@+id/errorText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="PIN incorrecto"
+        android:textColor="#FFFF5252"
+        android:textSize="12sp"
+        android:gravity="center"
+        android:visibility="gone"
+        android:layout_marginBottom="16dp" />
+
+    <EditText
+        android:id="@+id/pinInput"
+        android:layout_width="1dp"
+        android:layout_height="1dp"
+        android:inputType="numberPassword"
+        android:maxLength="4"
+        android:visibility="invisible" />
+
+    <GridLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:columnCount="3"
+        android:rowCount="4"
+        android:layout_marginBottom="16dp">
+
+        <Button android:id="@+id/btn1" android:text="1" style="@style/PinButton" />
+        <Button android:id="@+id/btn2" android:text="2" style="@style/PinButton" />
+        <Button android:id="@+id/btn3" android:text="3" style="@style/PinButton" />
+        <Button android:id="@+id/btn4" android:text="4" style="@style/PinButton" />
+        <Button android:id="@+id/btn5" android:text="5" style="@style/PinButton" />
+        <Button android:id="@+id/btn6" android:text="6" style="@style/PinButton" />
+        <Button android:id="@+id/btn7" android:text="7" style="@style/PinButton" />
+        <Button android:id="@+id/btn8" android:text="8" style="@style/PinButton" />
+        <Button android:id="@+id/btn9" android:text="9" style="@style/PinButton" />
+        <View />
+        <Button android:id="@+id/btn0" android:text="0" style="@style/PinButton" />
+        <ImageButton
+            android:id="@+id/btnBackspace"
+            android:src="@android:drawable/ic_input_delete"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Borrar"
+            android:layout_width="64dp"
+            android:layout_height="48dp" />
+    </GridLayout>
+
+</LinearLayout>

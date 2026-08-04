@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">CBZ &amp; PDF Reader</string>
+    <string name="loading">Cargando…</string>
+    <string name="error_loading">Error al cargar página</string>
+    <string name="page_format">Página %1$d de %2$d</string>
+    <string name="empty_library">No se encontraron archivos .cbz.</string>
+    <string name="permission_needed">Se necesita permiso de almacenamiento.</string>
+    <string name="search_hint">Buscar manga…</string>
+    <string name="sort_by">Ordenar</string>
+    <string name="sort_name">Nombre (A-Z)</string>
+    <string name="sort_date">Fecha modificación</string>
+    <string name="sort_size">Tamaño</string>
+    <string name="sort_progress">Progreso</string>
+    <string name="no_results">Sin resultados para \"%1$s\"</string>
+</resources>
