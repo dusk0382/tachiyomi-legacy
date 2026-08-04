@@ -139,7 +139,7 @@ class LibraryActivity : AppCompatActivity() {
         setupSort()
         setupRefreshButton()
 
-        BottomNavHelper.setup(this, binding.bottomNav, BottomNavHelper.TAB_LIBRARY)
+        BottomNavHelper.setup(this, binding.bottomNav.root, BottomNavHelper.TAB_LIBRARY)
 
         currentSort = Prefs.getSortMode()
         binding.sortSpinner.setSelection(currentSort)

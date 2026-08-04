@@ -39,7 +39,7 @@ class ExtensionsActivity : AppCompatActivity() {
 
         binding.btnAddRepo.setOnClickListener { promptAddRepo() }
 
-        BottomNavHelper.setup(this, binding.bottomNav, BottomNavHelper.TAB_EXTENSIONS)
+        BottomNavHelper.setup(this, binding.bottomNav.root, BottomNavHelper.TAB_EXTENSIONS)
 
         refresh()
     }

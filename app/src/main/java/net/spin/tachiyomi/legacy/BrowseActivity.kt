@@ -53,7 +53,7 @@ class BrowseActivity : AppCompatActivity() {
             startActivity(Intent(this, ExtensionsActivity::class.java))
         }
 
-        BottomNavHelper.setup(this, binding.bottomNav, BottomNavHelper.TAB_DISCOVER)
+        BottomNavHelper.setup(this, binding.bottomNav.root, BottomNavHelper.TAB_DISCOVER)
 
         binding.searchBox.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
