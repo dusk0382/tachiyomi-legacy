@@ -3,9 +3,12 @@ package mihon.data.extension.model
 import kotlinx.serialization.Serializable
 
 /**
- * Network models for the legacy extension repo format (`index.min.json` / `repo.json`),
- * which the vast majority of extension repositories use. Kept minimal: no protobuf store
- * needs are handled here; only the classic JSON index that SY/Tachiyomi repos expose.
+ * Network models for the extension repo formats.
+ *
+ * Two formats are supported:
+ *  - Legacy: `index.min.json` (JSON array) + `repo.json` (`NetworkLegacyExtensionRepo`).
+ *  - V2 (Mihon): `index.json` (`NetworkExtensionStore` with an inline `extensionList`,
+ *    or an `extensionListUrl` pointing to the extension list).
  */
 
 @Serializable
@@ -62,4 +65,51 @@ data class NetworkLegacyExtension(
             },
         )
     }
+}
+
+/** V2 store format used by Mihon-compatible repos (keiyoushi, etc.). */
+@Serializable
+data class NetworkExtensionStore(
+    val name: String,
+    val badgeLabel: String? = null,
+    val signingKey: String? = null,
+    val contact: Contact? = null,
+    val extensionList: ExtensionList? = null,
+    val extensionListUrl: String? = null,
+) {
+    @Serializable
+    data class Contact(
+        val website: String = "",
+        val discord: String? = null,
+    )
+
+    @Serializable
+    data class ExtensionList(val extensions: List<Extension>)
+
+    @Serializable
+    data class Extension(
+        val name: String,
+        val packageName: String,
+        val resources: Resources,
+        val extensionLib: String,
+        val versionCode: String,
+        val versionName: String,
+        val contentWarning: String? = null,
+        val sources: List<Source>,
+    )
+
+    @Serializable
+    data class Resources(
+        val apkUrl: String,
+        val iconUrl: String? = null,
+        val jarUrl: String? = null,
+    )
+
+    @Serializable
+    data class Source(
+        val id: String,
+        val name: String,
+        val language: String,
+        val homeUrl: String = "",
+    )
 }

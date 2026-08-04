@@ -26,7 +26,7 @@ class ExtensionManager(
     private val api: ExtensionApi,
 ) {
 
-    private val defaultRepoBaseUrl = "https://keiyoushi.github.io/extensions"
+    private val defaultRepoBaseUrl = "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json"
 
     /** Repo base URLs currently configured. The canonical repo is always included. */
     var repoBaseUrls: List<String>

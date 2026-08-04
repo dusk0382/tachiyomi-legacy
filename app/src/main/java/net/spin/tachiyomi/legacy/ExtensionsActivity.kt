@@ -39,6 +39,8 @@ class ExtensionsActivity : AppCompatActivity() {
 
         binding.btnAddRepo.setOnClickListener { promptAddRepo() }
 
+        BottomNavHelper.setup(this, binding.bottomNav, BottomNavHelper.TAB_EXTENSIONS)
+
         refresh()
     }
 
@@ -71,12 +73,13 @@ class ExtensionsActivity : AppCompatActivity() {
 
     private fun promptAddRepo() {
         val input = android.widget.EditText(this).apply {
-            hint = "https://example.com/extensions"
+            hint = "https://example.com/extensions/index.min.json"
             setTextColor(getColor(R.color.text_primary))
             setHintTextColor(getColor(R.color.text_secondary))
         }
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(this, R.style.Theme_MangaReader)
             .setTitle("Añadir repositorio")
+            .setMessage("Pega la URL del índice del repo (index.json, index.min.json o la base del repo)")
             .setView(input)
             .setPositiveButton("Añadir") { _, _ ->
                 val url = input.text.toString().trim()
