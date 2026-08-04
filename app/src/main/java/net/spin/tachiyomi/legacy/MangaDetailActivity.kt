@@ -88,7 +88,7 @@ class MangaDetailActivity : AppCompatActivity() {
             title = mangaTitle
         }
 
-        binding.cover.setImageResource(android.R.color.dark_gray)
+        binding.cover.setImageResource(android.R.color.darker_gray)
         intent.getStringExtra("manga_thumb")?.let {
             ImageLoader.load(it, binding.cover)
         }

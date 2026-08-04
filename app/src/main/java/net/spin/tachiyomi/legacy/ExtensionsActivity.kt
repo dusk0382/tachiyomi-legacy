@@ -5,8 +5,6 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
-import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -58,7 +56,9 @@ class ExtensionsActivity : AppCompatActivity() {
             val items = manager.availableExtensions.map { ext ->
                 when {
                     ext.pkgName in installed -> Item.Installed(ext)
-                    ext.pkgName in untrusted -> Item.Untrusted(ext)
+                    ext.pkgName in untrusted -> {
+                        Item.Untrusted(manager.untrustedExtensions.first { it.pkgName == ext.pkgName })
+                    }
                     else -> Item.Available(ext)
                 }
             }
@@ -134,16 +134,19 @@ class ExtensionsActivity : AppCompatActivity() {
 
         inner class VH(private val b: ItemExtensionBinding) : RecyclerView.ViewHolder(b.root) {
             fun bind(item: Item) {
-                b.extName.text = item.extension.name
-                b.extMeta.text = "${item.extension.versionName} · ${item.extension.lang}"
+                val ext = item.extension
+                b.extName.text = ext.name
+                b.extMeta.text = "${ext.versionName} · ${ext.lang ?: ""}"
                 b.btnInstall.visibility = View.VISIBLE
                 when (item) {
                     is Item.Available -> {
                         b.btnInstall.text = "Instalar"
+                        b.btnInstall.isEnabled = true
                         b.btnInstall.setOnClickListener { installExtension(item.extension) }
                     }
                     is Item.Untrusted -> {
                         b.btnInstall.text = "Confiar"
+                        b.btnInstall.isEnabled = true
                         b.btnInstall.setOnClickListener { trustExtension(item.extension) }
                     }
                     is Item.Installed -> {
@@ -155,9 +158,9 @@ class ExtensionsActivity : AppCompatActivity() {
         }
     }
 
-    private sealed class Item(val extension: Extension.Available) {
+    sealed class Item(val extension: Extension) {
         class Available(ext: Extension.Available) : Item(ext)
-        class Untrusted(ext: Extension.Available) : Item(ext)
+        class Untrusted(ext: Extension.Untrusted) : Item(ext)
         class Installed(ext: Extension.Available) : Item(ext)
     }
 }
