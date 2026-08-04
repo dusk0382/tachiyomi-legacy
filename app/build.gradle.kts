@@ -1,5 +1,6 @@
 plugins {
     alias(mihonx.plugins.android.application)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
