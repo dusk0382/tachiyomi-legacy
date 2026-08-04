@@ -19,6 +19,7 @@ class TrustExtension(
             // Remove previously trusted versions
             val removed = exts.filterNot { it.startsWith("$pkgName:") }.toMutableSet()
             removed.add("$pkgName:$versionCode:$signatureHash")
+            removed
         }
     }
 

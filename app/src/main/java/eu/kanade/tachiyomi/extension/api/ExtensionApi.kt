@@ -11,8 +11,8 @@ import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
-import mihon.data.extension.store.NetworkLegacyExtension
-import mihon.data.extension.store.NetworkLegacyExtensionRepo
+import mihon.data.extension.model.NetworkLegacyExtension
+import mihon.data.extension.model.NetworkLegacyExtensionRepo
 
 /**
  * Fetches available extensions from one or more legacy extension repositories
