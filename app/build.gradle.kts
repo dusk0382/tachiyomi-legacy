@@ -73,8 +73,10 @@ dependencies {
     implementation(libs.androidx.core)
     implementation(libs.androidx.documentFile)
     implementation(libs.androidx.lifecycle.livedata)
+    implementation(libs.androidx.lifecycle.runtime)
     implementation(libs.androidx.lifecycle.viewmodel)
     implementation(libs.androidx.recyclerView)
     implementation(libs.androidx.viewPager2)
+    implementation(libs.kotlinx.coroutines.android)
     implementation(libs.material)
 }

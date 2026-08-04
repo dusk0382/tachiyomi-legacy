@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">CBZ &amp; PDF Reader</string>
+    <string name="app_name">Tachiyomi Legacy</string>
     <string name="loading">Cargando…</string>
     <string name="error_loading">Error al cargar página</string>
     <string name="page_format">Página %1$d de %2$d</string>
@@ -13,4 +13,9 @@
     <string name="sort_size">Tamaño</string>
     <string name="sort_progress">Progreso</string>
     <string name="no_results">Sin resultados para \"%1$s\"</string>
+    <string name="browse_hint">Buscar en las fuentes…</string>
+    <string name="no_sources">No hay extensiones instaladas.\nPulsa el icono de repo para añadir.</string>
+    <string name="loading_sources">Cargando fuentes…</string>
+    <string name="browse_sources">Fuentes (%1$d)</string>
+</resources>
 </resources>

@@ -211,6 +211,10 @@ class LibraryActivity : AppCompatActivity() {
             }
         }
 
+        binding.btnBrowseOnline.setOnClickListener {
+            startActivity(Intent(this, BrowseActivity::class.java))
+        }
+
         binding.btnClearSearch.setOnClickListener {
             currentQuery = ""
             binding.searchBox.text.clear()

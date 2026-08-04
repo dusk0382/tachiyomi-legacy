@@ -32,6 +32,15 @@
             android:contentDescription="Buscar"
             android:layout_marginStart="4dp" />
 
+        <ImageButton
+            android:id="@+id/btnBrowseOnline"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_compass"
+            android:contentDescription="Explorar online"
+            android:layout_marginStart="4dp" />
+
         <LinearLayout
             android:id="@+id/searchContainer"
             android:layout_width="0dp"

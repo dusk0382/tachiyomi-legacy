@@ -8,6 +8,9 @@ import eu.kanade.tachiyomi.extension.api.ExtensionApi
 import eu.kanade.tachiyomi.extension.util.ExtensionLoader
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.network.NetworkPreferences
+import eu.kanade.tachiyomi.source.SourceManager
+import net.spin.tachiyomi.legacy.data.db.LibraryRepository
+import net.spin.tachiyomi.legacy.util.ImageLoader
 import tachiyomi.core.common.preference.AndroidPreferenceStore
 import tachiyomi.core.common.preference.PreferenceStore
 
@@ -28,18 +31,25 @@ class App : Application() {
     lateinit var extensionManager: ExtensionManager
         private set
 
+    lateinit var libraryRepository: LibraryRepository
+        private set
+
     override fun onCreate() {
         super.onCreate()
         preferenceStore = AndroidPreferenceStore(this)
         networkPreferences = NetworkPreferences(preferenceStore)
         networkHelper = NetworkHelper(this, networkPreferences, BuildConfig.DEBUG)
         sourcePreferences = SourcePreferences(preferenceStore)
+        libraryRepository = LibraryRepository(this)
+        val trustExtension = TrustExtension(sourcePreferences)
         extensionManager = ExtensionManager(
             context = this,
             preferences = sourcePreferences,
-            trustExtension = TrustExtension(sourcePreferences),
-            loader = ExtensionLoader(sourcePreferences, TrustExtension(sourcePreferences)),
+            trustExtension = trustExtension,
+            loader = ExtensionLoader(sourcePreferences, trustExtension),
             api = ExtensionApi(networkHelper),
         )
+        SourceManager.registerExtensions(extensionManager.installedExtensions)
+        ImageLoader.init(networkHelper)
     }
 }
