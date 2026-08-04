@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <net.spin.cabzreader.ZoomableImageView
+    <net.spin.tachiyomi.legacy.ZoomableImageView
         android:id="@+id/pageImage"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
