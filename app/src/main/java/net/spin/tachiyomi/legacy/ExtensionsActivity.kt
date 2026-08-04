@@ -142,12 +142,16 @@ class ExtensionsActivity : AppCompatActivity() {
                     is Item.Available -> {
                         b.btnInstall.text = "Instalar"
                         b.btnInstall.isEnabled = true
-                        b.btnInstall.setOnClickListener { installExtension(item.extension) }
+                        b.btnInstall.setOnClickListener {
+                            installExtension(item.extension as Extension.Available)
+                        }
                     }
                     is Item.Untrusted -> {
                         b.btnInstall.text = "Confiar"
                         b.btnInstall.isEnabled = true
-                        b.btnInstall.setOnClickListener { trustExtension(item.extension) }
+                        b.btnInstall.setOnClickListener {
+                            trustExtension(item.extension as Extension.Untrusted)
+                        }
                     }
                     is Item.Installed -> {
                         b.btnInstall.text = "Instalada"
