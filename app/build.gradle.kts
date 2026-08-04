@@ -64,6 +64,7 @@ kotlin {
 
 dependencies {
     implementation(projects.sourceApi)
+    implementation(projects.coreCommon)
 
     implementation(libs.androidx.activity)
     implementation(libs.androidx.appCompat)
