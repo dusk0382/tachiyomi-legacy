@@ -35,23 +35,25 @@ class ExtensionLoader(
         preferences.showNsfwSource.get()
     }
 
-    private const val EXTENSION_FEATURE = "tachiyomi.extension"
-    private const val METADATA_SOURCE_CLASS = "tachiyomi.extension.class"
-    private const val METADATA_SOURCE_FACTORY = "tachiyomi.extension.factory"
-    private const val METADATA_NSFW = "tachiyomi.extension.nsfw"
-    private const val METADATA_NAME = "tachiyomix.name"
-    private const val METADATA_EXTENSION_LIB = "tachiyomix.extensionLib"
-    private const val METADATA_CONTENT_WARNING = "tachiyomix.contentWarning"
+    companion object {
+        private const val EXTENSION_FEATURE = "tachiyomi.extension"
+        private const val METADATA_SOURCE_CLASS = "tachiyomi.extension.class"
+        private const val METADATA_SOURCE_FACTORY = "tachiyomi.extension.factory"
+        private const val METADATA_NSFW = "tachiyomi.extension.nsfw"
+        private const val METADATA_NAME = "tachiyomix.name"
+        private const val METADATA_EXTENSION_LIB = "tachiyomix.extensionLib"
+        private const val METADATA_CONTENT_WARNING = "tachiyomix.contentWarning"
 
-    private val SUPPORTED_LIB_VERSIONS = listOf(1.4, 1.6)
+        private val SUPPORTED_LIB_VERSIONS = listOf(1.4, 1.6)
 
-    @Suppress("DEPRECATION")
-    private val PACKAGE_FLAGS = PackageManager.GET_CONFIGURATIONS or
-        PackageManager.GET_META_DATA or
-        PackageManager.GET_SIGNATURES or
-        (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) PackageManager.GET_SIGNING_CERTIFICATES else 0)
+        @Suppress("DEPRECATION")
+        private val PACKAGE_FLAGS = PackageManager.GET_CONFIGURATIONS or
+            PackageManager.GET_META_DATA or
+            PackageManager.GET_SIGNATURES or
+            (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) PackageManager.GET_SIGNING_CERTIFICATES else 0)
 
-    private const val PRIVATE_EXTENSION_EXTENSION = "ext"
+        private const val PRIVATE_EXTENSION_EXTENSION = "ext"
+    }
 
     private fun getPrivateExtensionDir(context: Context) = File(context.filesDir, "exts")
 

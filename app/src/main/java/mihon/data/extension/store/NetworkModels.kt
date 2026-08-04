@@ -13,6 +13,7 @@ data class NetworkLegacyExtensionRepo(
     val meta: Meta,
     val indexV2: String? = null,
 ) {
+    @Serializable
     data class Meta(
         val name: String,
         val shortName: String? = null,
@@ -32,6 +33,7 @@ data class NetworkLegacyExtension(
     val nsfw: Int = 0,
     val sources: List<Source>? = null,
 ) {
+    @Serializable
     data class Source(
         val id: Long,
         val lang: String,
