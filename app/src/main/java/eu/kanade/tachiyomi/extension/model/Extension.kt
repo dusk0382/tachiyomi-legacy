@@ -37,11 +37,20 @@ sealed class Extension {
         override val libVersion: Double,
         override val lang: String,
         override val isNsfw: Boolean,
+        val sources: List<Source>,
         val apkUrl: String,
         val iconUrl: String,
         val hasUpdate: Boolean = false,
         val isObsolete: Boolean = false,
-    ) : Extension()
+    ) : Extension() {
+
+        data class Source(
+            val id: Long,
+            val lang: String,
+            val name: String,
+            val baseUrl: String,
+        )
+    }
 
     data class Untrusted(
         override val name: String,

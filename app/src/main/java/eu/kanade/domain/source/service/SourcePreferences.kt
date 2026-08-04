@@ -18,4 +18,9 @@ class SourcePreferences(
         "trusted_extensions",
         emptySet(),
     )
+
+    val extensionRepos: Preference<Set<String>> = preferenceStore.getStringSet(
+        "extension_repos",
+        emptySet(),
+    )
 }
