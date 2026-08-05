@@ -1,11 +1,15 @@
 package eu.kanade.tachiyomi.extension.util
 
 import android.content.Context
+import android.util.Base64
 import com.android.apksig.ApkSigner
 import net.spin.tachiyomi.legacy.R
 import java.io.File
-import java.security.KeyStore
+import java.security.KeyFactory
+import java.security.PrivateKey
+import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
+import java.security.spec.PKCS8EncodedKeySpec
 
 /**
  * Re-signs extension APKs so they are readable on old Android versions.
@@ -14,38 +18,44 @@ import java.security.cert.X509Certificate
  * scheme only. On Android 6 (API 23) the package manager cannot read a v2-only
  * signature, which makes [android.content.pm.PackageManager.getPackageArchiveInfo]
  * return null. Re-signing with v1+v2 (JAR + APK signature block) using our own
- * embedded keystore restores compatibility, mimicking what Tachiyomi classic did.
+ * embedded key restores compatibility, mimicking what Tachiyomi classic did.
+ *
+ * The signing identity is embedded as PEM raw resources (PKCS#8 private key +
+ * X.509 certificate) instead of a KeyStore file: Android 6 ships no JKS provider
+ * (`KeyStore.getInstance("JKS")` throws NoSuchAlgorithmException) and the bundled
+ * BouncyCastle cannot reliably read modern PKCS12 files either. Parsing the PEM
+ * directly with KeyFactory/CertificateFactory works on every API level.
  */
 object ExtensionSigner {
 
-    private const val STORE_TYPE = "JKS"
-    private const val STORE_PASSWORD = "tachiyomi_legacy"
-    private const val KEY_ALIAS = "extension"
-    private const val KEY_PASSWORD = "tachiyomi_legacy"
-
     @Volatile
-    private var cachedPrivateKey: java.security.PrivateKey? = null
-
-    @Volatile
-    private var cachedCertChain: Array<X509Certificate>? = null
+    private var cachedIdentity: Pair<PrivateKey, List<X509Certificate>>? = null
 
     @Synchronized
-    private fun getKeys(context: Context): Pair<java.security.PrivateKey, Array<X509Certificate>> {
-        cachedPrivateKey?.let { pk ->
-            cachedCertChain?.let { cc -> return pk to cc }
-        }
+    private fun loadIdentity(context: Context): Pair<PrivateKey, List<X509Certificate>> {
+        cachedIdentity?.let { return it }
 
-        val store = KeyStore.getInstance(STORE_TYPE)
-        context.resources.openRawResource(R.raw.extension_signing).use { input ->
-            store.load(input, STORE_PASSWORD.toCharArray())
-        }
-        val privateKey = store.getKey(KEY_ALIAS, KEY_PASSWORD.toCharArray()) as java.security.PrivateKey
+        val keyPem = context.resources.openRawResource(R.raw.extension_signing_key)
+            .bufferedReader(Charsets.US_ASCII).use { it.readText() }
+        val certPem = context.resources.openRawResource(R.raw.extension_signing_cert)
+            .bufferedReader(Charsets.US_ASCII).use { it.readText() }
+
+        val privateKey = KeyFactory.getInstance("RSA")
+            .generatePrivate(PKCS8EncodedKeySpec(decodeBase64(keyPem)))
+
         @Suppress("UNCHECKED_CAST")
-        val chain = store.getCertificateChain(KEY_ALIAS).mapNotNull { it as? X509Certificate }.toTypedArray()
+        val certs = CertificateFactory.getInstance("X.509")
+            .generateCertificates(certPem.byteInputStream(Charsets.US_ASCII))
+            .map { it as X509Certificate }
 
-        cachedPrivateKey = privateKey
-        cachedCertChain = chain
-        return privateKey to chain
+        return (privateKey to certs).also { cachedIdentity = it }
+    }
+
+    private fun decodeBase64(pem: String): ByteArray {
+        val body = pem.lines()
+            .filterNot { it.trimStart().startsWith("-----") || it.isBlank() }
+            .joinToString("")
+        return Base64.decode(body, Base64.DEFAULT)
     }
 
     /**
@@ -53,11 +63,11 @@ object ExtensionSigner {
      * signature schemes, writing the result to [output].
      */
     fun sign(context: Context, input: File, output: File) {
-        val (privateKey, certChain) = getKeys(context)
+        val (privateKey, certChain) = loadIdentity(context)
         val signerConfig = ApkSigner.SignerConfig.Builder(
             "extension",
             privateKey,
-            certChain.toList(),
+            certChain,
         ).build()
 
         ApkSigner.Builder(listOf(signerConfig))
