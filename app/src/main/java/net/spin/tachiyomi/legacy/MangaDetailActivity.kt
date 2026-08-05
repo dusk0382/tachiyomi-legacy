@@ -1,5 +1,6 @@
 package net.spin.tachiyomi.legacy
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -153,8 +154,12 @@ class MangaDetailActivity : AppCompatActivity() {
     }
 
     private fun openReader(chapter: SChapter) {
-        // Fase 4 wires the online reader here.
-        Toast.makeText(this, "Lector online en la Fase 4 (cap: ${chapter.name})", Toast.LENGTH_LONG).show()
+        val intent = Intent(this, ReaderActivity::class.java).apply {
+            putExtra(ReaderActivity.EXTRA_SOURCE_ID, sourceId)
+            putExtra(ReaderActivity.EXTRA_CHAPTER_URL, chapter.url)
+            putExtra(ReaderActivity.EXTRA_CHAPTER_NAME, chapter.name)
+        }
+        startActivity(intent)
     }
 
     private fun updateFavoriteIcon() {

@@ -8,6 +8,8 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
+import eu.kanade.tachiyomi.source.SourceManager
+import eu.kanade.tachiyomi.source.model.SChapter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -49,10 +51,14 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private val _pageCount = MutableLiveData(0)
     val pageCount: LiveData<Int> = _pageCount
 
-    @Volatile
-    private var reader: CBZReader? = null
+    private val _isReady = MutableLiveData(false)
+    val isReady: LiveData<Boolean> = _isReady
 
-    private var mangaFilePath: String? = null
+    @Volatile
+    private var reader: PageReader? = null
+
+    /** Clave usada para guardar el progreso (ruta local o sourceId/capítulo). */
+    private var progressKey: String? = null
 
     private val cache = PageCache(
         (Runtime.getRuntime().maxMemory() / 8).toInt()
@@ -62,8 +68,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private var screenWidth: Int = 1024
     private var screenHeight: Int = 600
 
-    fun init(filePath: String, screenWidth: Int, screenHeight: Int) {
-        this.mangaFilePath = filePath
+    fun initLocal(filePath: String, screenWidth: Int, screenHeight: Int) {
+        this.progressKey = filePath
         this.screenWidth = screenWidth
         this.screenHeight = screenHeight
 
@@ -84,13 +90,62 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
                 val startPage = lastPage.coerceIn(0, (count - 1).coerceAtLeast(0))
 
-                _pageCount.postValue(count)
+                // Post the current page first so the pageCount observer can read it.
                 _currentPage.postValue(startPage)
+                _pageCount.postValue(count)
             } catch (e: Exception) {
-                Log.e("MangaLite", "Error init", e)
+                Log.e("MangaLite", "Error init local", e)
                 _pageCount.postValue(0)
             } finally {
                 initializing = false
+                _isReady.postValue(true)
+            }
+        }
+    }
+
+    fun initOnline(
+        sourceId: Long,
+        chapterUrl: String,
+        chapterName: String,
+        screenWidth: Int,
+        screenHeight: Int,
+    ) {
+        val key = "${sourceId}_$chapterUrl"
+        this.progressKey = key
+        this.screenWidth = screenWidth
+        this.screenHeight = screenHeight
+
+        if (reader != null || initializing) return
+
+        initializing = true
+
+        scope.launch {
+            try {
+                val source = SourceManager.getOrThrow(sourceId)
+                val chapter = SChapter.create().apply {
+                    this.url = chapterUrl
+                    this.name = chapterName
+                }
+                val pages = source.getPageList(chapter)
+                val r = OnlineChapterReader(getApplication(), source, chapter, pages)
+
+                reader = r
+
+                val count = r.pageCount
+                val lastPage = Prefs.getLastPage(key)
+                Prefs.setTotalPages(key, count)
+
+                val startPage = lastPage.coerceIn(0, (count - 1).coerceAtLeast(0))
+
+                // Post the current page first so the pageCount observer can read it.
+                _currentPage.postValue(startPage)
+                _pageCount.postValue(count)
+            } catch (e: Exception) {
+                Log.e("MangaLite", "Error init online", e)
+                _pageCount.postValue(0)
+            } finally {
+                initializing = false
+                _isReady.postValue(true)
             }
         }
     }
@@ -253,12 +308,18 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
         _currentPage.value = clamped
 
-        val path = mangaFilePath
-        if (path != null) {
-            Prefs.setLastPage(path, clamped)
+        val key = progressKey
+        if (key != null) {
+            Prefs.setLastPage(key, clamped)
         }
 
         prefetchAround(clamped)
+    }
+
+    /** Guarda la página actual en el progreso (usado al salir del lector). */
+    fun saveProgress() {
+        val key = progressKey ?: return
+        _currentPage.value?.let { Prefs.setLastPage(key, it) }
     }
 
     fun clearCache() {

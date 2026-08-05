@@ -20,4 +20,6 @@
     <string name="reading_direction">Dirección de lectura</string>
     <string name="reading_direction_ltr">Izquierda a derecha (LTR)</string>
     <string name="reading_direction_rtl">Derecha a izquierda (RTL)</string>
+    <string name="loading_chapter">Cargando capítulo…</string>
+    <string name="no_pages">Sin páginas</string>
 </resources>

@@ -16,6 +16,9 @@ class ReaderActivity : AppCompatActivity(), ZoomableImageView.OnTapListener {
         const val EXTRA_PATH = "path"
         const val EXTRA_TITLE = "title"
         const val EXTRA_LAST_PAGE = "last_page"
+        const val EXTRA_SOURCE_ID = "source_id"
+        const val EXTRA_CHAPTER_URL = "chapter_url"
+        const val EXTRA_CHAPTER_NAME = "chapter_name"
     }
 
     private lateinit var binding: ActivityReaderBinding
@@ -38,14 +41,23 @@ class ReaderActivity : AppCompatActivity(), ZoomableImageView.OnTapListener {
         val screenWidth = dm.widthPixels
         val screenHeight = dm.heightPixels
 
-        val path = intent.getStringExtra(EXTRA_PATH)
-        if (path == null) {
-            finish()
-            return
-        }
-
         viewModel = ViewModelProvider(this)[ReaderViewModel::class.java]
-        viewModel.init(path, screenWidth, screenHeight)
+
+        val path = intent.getStringExtra(EXTRA_PATH)
+        val sourceId = intent.getLongExtra(EXTRA_SOURCE_ID, -1L)
+        val chapterUrl = intent.getStringExtra(EXTRA_CHAPTER_URL)
+
+        when {
+            path != null -> viewModel.initLocal(path, screenWidth, screenHeight)
+            sourceId > 0 && !chapterUrl.isNullOrBlank() -> {
+                val name = intent.getStringExtra(EXTRA_CHAPTER_NAME) ?: chapterUrl
+                viewModel.initOnline(sourceId, chapterUrl, name, screenWidth, screenHeight)
+            }
+            else -> {
+                finish()
+                return
+            }
+        }
 
         val adapter = PageAdapter(viewModel, this)
 
@@ -61,9 +73,14 @@ class ReaderActivity : AppCompatActivity(), ZoomableImageView.OnTapListener {
             adapter.notifyDataSetChanged()
 
             if (count == 0) {
-                binding.pageInfo.text = "Sin páginas"
+                binding.pageInfo.text = if (viewModel.isReady.value == true) {
+                    getString(R.string.no_pages)
+                } else {
+                    getString(R.string.loading_chapter)
+                }
             } else {
-                val lastPage = intent.getIntExtra(EXTRA_LAST_PAGE, 0)
+                val lastPage = viewModel.currentPage.value
+                    ?: intent.getIntExtra(EXTRA_LAST_PAGE, 0)
                 val startPage = lastPage.coerceIn(0, count - 1)
                 binding.pager.setCurrentItem(startPage, false)
                 updatePageInfo(startPage, count)
@@ -159,11 +176,7 @@ class ReaderActivity : AppCompatActivity(), ZoomableImageView.OnTapListener {
 
     override fun onPause() {
         if (::viewModel.isInitialized) {
-            viewModel.currentPage.value?.let { page ->
-                intent.getStringExtra(EXTRA_PATH)?.let { path ->
-                    Prefs.setLastPage(path, page)
-                }
-            }
+            viewModel.saveProgress()
         }
         super.onPause()
     }
@@ -171,10 +184,7 @@ class ReaderActivity : AppCompatActivity(), ZoomableImageView.OnTapListener {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         if (::viewModel.isInitialized) {
-            viewModel.currentPage.value?.let { page ->
-                val path = intent.getStringExtra(EXTRA_PATH) ?: return@let
-                Prefs.setLastPage(path, page)
-            }
+            viewModel.saveProgress()
         }
         super.onBackPressed()
     }
