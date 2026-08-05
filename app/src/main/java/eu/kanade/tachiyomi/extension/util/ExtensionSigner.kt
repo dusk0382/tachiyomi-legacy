@@ -2,7 +2,6 @@ package eu.kanade.tachiyomi.extension.util
 
 import android.content.Context
 import android.util.Base64
-import com.android.apksig.ApkSigner
 import net.spin.tachiyomi.legacy.R
 import java.io.File
 import java.security.KeyFactory
@@ -12,19 +11,26 @@ import java.security.cert.X509Certificate
 import java.security.spec.PKCS8EncodedKeySpec
 
 /**
- * Re-signs extension APKs so they are readable on old Android versions.
+ * Re-signs extension APKs so they are readable on Android 6 (API 23).
  *
- * Keiyoushi (and other modern repos) sign their extensions using the v2 signature
- * scheme only. On Android 6 (API 23) the package manager cannot read a v2-only
- * signature, which makes [android.content.pm.PackageManager.getPackageArchiveInfo]
- * return null. Re-signing with v1+v2 (JAR + APK signature block) using our own
- * embedded key restores compatibility, mimicking what Tachiyomi classic did.
+ * Keiyoushi (and other modern repos) sign their extensions using only the v2
+ * signature scheme, which Android 6 cannot read at all. Re-signing with a v1
+ * (JAR) signature using our own embedded key restores compatibility, mimicking
+ * what Tachiyomi classic did.
  *
  * The signing identity is embedded as PEM raw resources (PKCS#8 private key +
  * X.509 certificate) instead of a KeyStore file: Android 6 ships no JKS provider
  * (`KeyStore.getInstance("JKS")` throws NoSuchAlgorithmException) and the bundled
  * BouncyCastle cannot reliably read modern PKCS12 files either. Parsing the PEM
  * directly with KeyFactory/CertificateFactory works on every API level.
+ *
+ * The v1 signature itself is produced by [V1JarSigner], a hand-rolled PKCS#7
+ * SignedData generator that uses only plain JDK APIs (MessageDigest, Signature,
+ * CertificateFactory). Every signing library fails on API 23:
+ *  - apksig 3.x+ calls Class.getDeclaredAnnotation (added in API 26)
+ *  - apksig 2.x relies on sun.security.* classes absent from the device runtime
+ * V1JarSigner's output was validated against the real Android 6 PackageParser
+ * (`adb install` accepted the signature; see the project history).
  */
 object ExtensionSigner {
 
@@ -59,23 +65,11 @@ object ExtensionSigner {
     }
 
     /**
-     * Re-signs [input] APK with the embedded key using version 1 (JAR) and version 2
-     * signature schemes, writing the result to [output].
+     * Re-signs [input] APK with the embedded key using the v1 (JAR) signature
+     * scheme — the only scheme Android 6 can read — writing the result to [output].
      */
     fun sign(context: Context, input: File, output: File) {
         val (privateKey, certChain) = loadIdentity(context)
-        val signerConfig = ApkSigner.SignerConfig.Builder(
-            "extension",
-            privateKey,
-            certChain,
-        ).build()
-
-        ApkSigner.Builder(listOf(signerConfig))
-            .setInputApk(input)
-            .setOutputApk(output)
-            .setV1SigningEnabled(true)
-            .setV2SigningEnabled(true)
-            .build()
-            .sign()
+        V1JarSigner.sign(input, output, privateKey, certChain)
     }
 }
