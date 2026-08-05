@@ -70,13 +70,21 @@ class ExtensionsActivity : AppCompatActivity() {
 
             adapter.submit(items)
             binding.progressBar.visibility = View.GONE
-            binding.emptyText.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
+
+            val error = manager.repoFetchError
+            if (items.isEmpty() && error != null) {
+                binding.emptyText.text = "No se pudieron cargar extensiones:\n$error"
+                binding.emptyText.visibility = View.VISIBLE
+            } else {
+                binding.emptyText.text = "Sin extensiones disponibles"
+                binding.emptyText.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
+            }
         }
     }
 
     private fun promptAddRepo() {
         val input = android.widget.EditText(this).apply {
-            hint = "https://keiyoushi.github.io/extensions/index.min.json"
+            hint = "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json"
             setTextColor(getColor(R.color.text_primary))
             setHintTextColor(getColor(R.color.text_secondary))
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI

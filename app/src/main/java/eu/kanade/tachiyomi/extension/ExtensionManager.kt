@@ -48,6 +48,11 @@ class ExtensionManager(
     var availableExtensions: List<Extension.Available>
         private set
 
+    /** Last repo fetch error(s), shown when no extensions are available. */
+    @Volatile
+    var repoFetchError: String? = null
+        private set
+
     init {
         installedExtensions = emptyList()
         untrustedExtensions = emptyList()
@@ -69,9 +74,14 @@ class ExtensionManager(
 
     /** Refreshes the list of available extensions from all configured repos. */
     suspend fun findAvailableExtensions(): List<Extension.Available> {
-        val extensions = api.findExtensions(repoBaseUrls)
-        availableExtensions = extensions
-        return extensions
+        val result = api.findExtensions(repoBaseUrls)
+        availableExtensions = result.extensions
+        repoFetchError = if (result.extensions.isEmpty() && result.errors.isNotEmpty()) {
+            result.errors.joinToString("\n\n")
+        } else {
+            null
+        }
+        return result.extensions
     }
 
     /** Downloads and privately installs the given available extension. */

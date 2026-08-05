@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.api
 
+import android.util.Log
 import eu.kanade.tachiyomi.extension.model.Extension
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.NetworkHelper
@@ -37,27 +38,43 @@ class ExtensionApi(
 
     /**
      * Fetches the extension lists for the given repository base URLs.
+     * Failures of individual repos are collected in [RepoResult.errors] instead of
+     * failing the whole request, so the UI can tell the user what went wrong.
      */
-    suspend fun findExtensions(repoBaseUrls: List<String>): List<Extension.Available> {
+    suspend fun findExtensions(repoBaseUrls: List<String>): RepoResult {
         return withContext(Dispatchers.IO) {
             supervisorScope {
-                repoBaseUrls.map { baseUrl ->
-                    async { fetchRepo(baseUrl) }
-                }.awaitAll().flatten()
+                val results = repoBaseUrls.map { baseUrl ->
+                    async { baseUrl to runCatching { fetchRepo(baseUrl) } }
+                }.awaitAll()
+
+                RepoResult(
+                    extensions = results.flatMap { it.second.getOrElse { emptyList() } },
+                    errors = results.mapNotNull { (baseUrl, res) ->
+                        res.exceptionOrNull()?.let { e ->
+                            Log.e("ExtensionApi", "Repo $baseUrl falló: ${e.message}", e)
+                            "$baseUrl\n${e.message ?: e.javaClass.simpleName}"
+                        }
+                    },
+                )
             }
         }
     }
 
+    /** Result of fetching one or more repos: loaded extensions plus per-repo errors. */
+    data class RepoResult(
+        val extensions: List<Extension.Available>,
+        val errors: List<String>,
+    )
+
     private suspend fun fetchRepo(baseUrl: String): List<Extension.Available> {
-        return try {
-            // Direct index/repo URL pasted by the user (e.g. ".../index.min.json").
-            if (baseUrl.endsWith(".json") || baseUrl.endsWith(".pb")) {
-                return fetchIndexOrRepo(baseUrl)
-            }
-            fetchLegacy(baseUrl).ifEmpty { fetchV2(baseUrl) }
-        } catch (_: Exception) {
-            emptyList()
+        // Direct index/repo URL pasted by the user (e.g. ".../index.min.json").
+        if (baseUrl.endsWith(".json") || baseUrl.endsWith(".pb")) {
+            return fetchIndexOrRepo(baseUrl)
         }
+        val legacy = fetchLegacy(baseUrl)
+        if (legacy.isNotEmpty()) return legacy
+        return fetchV2(baseUrl)
     }
 
     /**
