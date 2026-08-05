@@ -34,6 +34,10 @@ android {
         buildConfig = true
     }
 
+    compileOptions {
+        isCoreLibraryDesugaringEnabled = true
+    }
+
     packaging {
         resources {
             excludes += setOf(
@@ -79,4 +83,7 @@ dependencies {
     implementation(libs.androidx.viewPager2)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.material)
+    implementation(libs.apksig)
+
+    coreLibraryDesugaring(libs.android.desugar)
 }

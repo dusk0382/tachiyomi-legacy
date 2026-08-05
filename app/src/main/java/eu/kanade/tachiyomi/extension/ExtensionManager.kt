@@ -7,6 +7,7 @@ import eu.kanade.tachiyomi.extension.api.ExtensionApi
 import eu.kanade.tachiyomi.extension.model.Extension
 import eu.kanade.tachiyomi.extension.model.LoadResult
 import eu.kanade.tachiyomi.extension.util.ExtensionLoader
+import eu.kanade.tachiyomi.extension.util.ExtensionSigner
 import eu.kanade.tachiyomi.network.GET
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -77,7 +78,9 @@ class ExtensionManager(
     suspend fun installExtension(extension: Extension.Available): Boolean {
         return try {
             val file = downloadApk(extension.apkUrl, extension.pkgName)
-            loader.installPrivateExtensionFile(context, file)
+            val signed = File(context.cacheDir, "${extension.pkgName}.signed.apk")
+            ExtensionSigner.sign(context, file, signed)
+            loader.installPrivateExtensionFile(context, signed)
         } catch (_: Exception) {
             false
         }

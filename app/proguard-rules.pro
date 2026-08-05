@@ -6,3 +6,7 @@
 }
 -dontwarn org.jetbrains.annotations.**
 -dontwarn kotlin.**
+
+# apksig: re-signing library (used for extension APKs)
+-keep class com.android.apksig.** { *; }
+-dontwarn com.android.apksig.**
