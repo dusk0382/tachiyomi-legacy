@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.extension
 
 import android.content.Context
+import android.util.Log
 import eu.kanade.domain.extension.interactor.TrustExtension
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.tachiyomi.extension.api.ExtensionApi
@@ -28,6 +29,10 @@ class ExtensionManager(
 ) {
 
     private val defaultRepoBaseUrl = "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json"
+
+    private companion object {
+        const val TAG = "ExtensionInstall"
+    }
 
     /** Repo base URLs currently configured. The canonical repo is always included. */
     var repoBaseUrls: List<String>
@@ -91,7 +96,8 @@ class ExtensionManager(
             val signed = File(context.cacheDir, "${extension.pkgName}.signed.apk")
             ExtensionSigner.sign(context, file, signed)
             loader.installPrivateExtensionFile(context, signed)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "Fallo instalando ${extension.pkgName}: ${e.message}", e)
             false
         }
     }
@@ -115,9 +121,13 @@ class ExtensionManager(
             api.networkClient().newCall(GET(url)).execute()
         }
         response.use {
-            if (!it.isSuccessful) throw RuntimeException("HTTP ${it.code}")
+            if (!it.isSuccessful) {
+                Log.e(TAG, "Descarga fallida HTTP ${it.code}: $url")
+                throw RuntimeException("HTTP ${it.code}")
+            }
             target.outputStream().use { out -> it.body.byteStream().copyTo(out) }
         }
+        Log.i(TAG, "APK descargado (${target.length()} bytes): $url")
         return target
     }
 }

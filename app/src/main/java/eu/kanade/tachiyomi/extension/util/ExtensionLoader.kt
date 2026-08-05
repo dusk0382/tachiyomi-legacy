@@ -5,6 +5,7 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import androidx.core.content.pm.PackageInfoCompat
 import eu.kanade.domain.extension.interactor.TrustExtension
 import eu.kanade.domain.source.service.SourcePreferences
@@ -36,6 +37,7 @@ class ExtensionLoader(
     }
 
     companion object {
+        private const val TAG = "ExtensionInstall"
         private const val EXTENSION_FEATURE = "tachiyomi.extension"
         private const val METADATA_SOURCE_CLASS = "tachiyomi.extension.class"
         private const val METADATA_SOURCE_FACTORY = "tachiyomi.extension.factory"
@@ -59,20 +61,29 @@ class ExtensionLoader(
 
     fun installPrivateExtensionFile(context: Context, file: File): Boolean {
         val extension = context.packageManager.getPackageArchiveInfo(file.absolutePath, PACKAGE_FLAGS)
-            ?.takeIf { isPackageAnExtension(it) } ?: return false
+            ?.takeIf { isPackageAnExtension(it) }
+            ?: run {
+                Log.e(TAG, "getPackageArchiveInfo no pudo parsear el APK firmado: ${file.absolutePath}")
+                return false
+            }
         val currentExtension = getExtensionPackageInfoFromPkgName(context, extension.packageName)
 
         if (currentExtension != null) {
             if (PackageInfoCompat.getLongVersionCode(extension) <
                 PackageInfoCompat.getLongVersionCode(currentExtension)
             ) {
+                Log.w(TAG, "Version nueva menor que la instalada, se omite")
                 return false
             }
 
             val extensionSignatures = getSignatures(extension)
-            if (extensionSignatures.isNullOrEmpty()) return false
+            if (extensionSignatures.isNullOrEmpty()) {
+                Log.e(TAG, "El APK firmado no expone firmas")
+                return false
+            }
 
             if (!extensionSignatures.containsAll(getSignatures(currentExtension)!!)) {
+                Log.e(TAG, "Firmas distintas a la version instalada, se omite")
                 return false
             }
         }
