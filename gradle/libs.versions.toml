@@ -1,7 +1,9 @@
 [versions]
 aboutLibraries = "15.0.3"
 android-desugar = "2.1.5"
-apksig = "8.4.0"
+# apksig 3.x+ usa Class.getDeclaredAnnotation (API 26+) y crashea en Android 6.
+# 2.3.0 solo usa java.util.Base64, que el core library desugaring ya backportea.
+apksig = "2.3.0"
 android-gradle = "9.2.1"
 androidx-activity = "1.13.0"
 androidx-activity-compose = "1.13.0"

@@ -96,7 +96,9 @@ class ExtensionManager(
             val signed = File(context.cacheDir, "${extension.pkgName}.signed.apk")
             ExtensionSigner.sign(context, file, signed)
             loader.installPrivateExtensionFile(context, signed)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Throwable (no solo Exception): errores como NoSuchMethodError por APIs
+            // ausentes en Android 6 no deben tumbar la app nunca.
             Log.e(TAG, "Fallo instalando ${extension.pkgName}: ${e.message}", e)
             false
         }
