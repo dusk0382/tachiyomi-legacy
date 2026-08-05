@@ -29,6 +29,16 @@ android {
         }
     }
 
+    splits {
+        abi {
+            isEnable = true
+            isUniversalApk = false
+            reset()
+            // Snapdragon 210 (MSM8909) es un SoC ARMv7 de 32 bits
+            include("armeabi-v7a")
+        }
+    }
+
     buildFeatures {
         viewBinding = true
         buildConfig = true

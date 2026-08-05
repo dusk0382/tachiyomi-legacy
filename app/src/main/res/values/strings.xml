@@ -17,4 +17,7 @@
     <string name="no_sources">No hay extensiones instaladas.\nPulsa el icono de repo para añadir.</string>
     <string name="loading_sources">Cargando fuentes…</string>
     <string name="browse_sources">Fuentes (%1$d)</string>
+    <string name="reading_direction">Dirección de lectura</string>
+    <string name="reading_direction_ltr">Izquierda a derecha (LTR)</string>
+    <string name="reading_direction_rtl">Derecha a izquierda (RTL)</string>
 </resources>

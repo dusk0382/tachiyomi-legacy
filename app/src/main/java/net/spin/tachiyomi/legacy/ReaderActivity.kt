@@ -7,6 +7,7 @@ import android.view.WindowManager
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
 import androidx.viewpager2.widget.ViewPager2
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import net.spin.tachiyomi.legacy.databinding.ActivityReaderBinding
 
 class ReaderActivity : AppCompatActivity(), ZoomableImageView.OnTapListener {
@@ -52,6 +53,10 @@ class ReaderActivity : AppCompatActivity(), ZoomableImageView.OnTapListener {
         binding.pager.orientation = ViewPager2.ORIENTATION_HORIZONTAL
         binding.pager.offscreenPageLimit = 1
 
+        applyReadingDirection()
+
+        binding.directionButton.setOnClickListener { showDirectionDialog() }
+
         viewModel.pageCount.observe(this) { count ->
             adapter.notifyDataSetChanged()
 
@@ -83,18 +88,52 @@ class ReaderActivity : AppCompatActivity(), ZoomableImageView.OnTapListener {
     }
 
     override fun onTapLeft() {
-        val cur = binding.pager.currentItem
-        if (cur > 0) {
-            binding.pager.setCurrentItem(cur - 1, true)
+        val rtl = Prefs.getReadingDirection() == Prefs.DIRECTION_RTL
+        if (rtl) {
+            goToPage(binding.pager.currentItem + 1)
+        } else {
+            goToPage(binding.pager.currentItem - 1)
         }
     }
 
     override fun onTapRight() {
-        val cur = binding.pager.currentItem
-        val max = (viewModel.pageCount.value ?: 1) - 1
-        if (cur < max) {
-            binding.pager.setCurrentItem(cur + 1, true)
+        val rtl = Prefs.getReadingDirection() == Prefs.DIRECTION_RTL
+        if (rtl) {
+            goToPage(binding.pager.currentItem - 1)
+        } else {
+            goToPage(binding.pager.currentItem + 1)
         }
+    }
+
+    private fun goToPage(index: Int) {
+        val max = (viewModel.pageCount.value ?: 1) - 1
+        val target = index.coerceIn(0, max)
+        if (target != binding.pager.currentItem) {
+            binding.pager.setCurrentItem(target, true)
+        }
+    }
+
+    private fun applyReadingDirection() {
+        val rtl = Prefs.getReadingDirection() == Prefs.DIRECTION_RTL
+        binding.pager.layoutDirection = if (rtl) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
+        binding.directionButton.text = if (rtl) "RTL" else "LTR"
+        binding.pager.requestLayout()
+    }
+
+    private fun showDirectionDialog() {
+        val options = arrayOf(
+            getString(R.string.reading_direction_ltr),
+            getString(R.string.reading_direction_rtl)
+        )
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.reading_direction)
+            .setSingleChoiceItems(options, Prefs.getReadingDirection()) { dialog, which ->
+                Prefs.setReadingDirection(which)
+                applyReadingDirection()
+                dialog.dismiss()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     override fun onTapCenter() {

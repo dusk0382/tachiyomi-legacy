@@ -5,6 +5,8 @@ on:
       - 'master'
       - 'main'
       - 'release'
+    tags:
+      - 'v*'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -35,7 +37,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: TachiyomiLegacy-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk
           if-no-files-found: error
 
   build:
@@ -82,8 +84,11 @@ jobs:
 
           if ls app/build/outputs/apk/release/*-signed.apk >/dev/null 2>&1; then
             mv app/build/outputs/apk/release/*-signed.apk TachiyomiLegacy.apk
+          elif ls app/build/outputs/apk/release/*-unsigned.apk >/dev/null 2>&1; then
+            mv app/build/outputs/apk/release/*-unsigned.apk TachiyomiLegacy.apk
           else
-            mv app/build/outputs/apk/release/app-release-unsigned.apk TachiyomiLegacy.apk
+            ls app/build/outputs/apk/release
+            exit 1
           fi
 
       - name: Upload APK artifact

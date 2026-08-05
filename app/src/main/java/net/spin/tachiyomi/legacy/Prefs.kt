@@ -34,4 +34,13 @@ object Prefs {
     fun setSortMode(mode: Int) {
         prefs.edit().putInt("sort_mode", mode).apply()
     }
+
+    // Dirección de lectura del pager: 0 = LTR, 1 = RTL
+    fun getReadingDirection(): Int = prefs.getInt("reading_direction", DIRECTION_LTR)
+    fun setReadingDirection(direction: Int) {
+        prefs.edit().putInt("reading_direction", direction).apply()
+    }
+
+    const val DIRECTION_LTR = 0
+    const val DIRECTION_RTL = 1
 }
