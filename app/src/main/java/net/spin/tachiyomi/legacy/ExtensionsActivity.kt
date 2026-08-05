@@ -1,11 +1,14 @@
 package net.spin.tachiyomi.legacy
 
-import android.app.AlertDialog
 import android.os.Bundle
+import android.text.InputType
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
+import android.view.inputmethod.EditorInfo
 import android.widget.Toast
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -73,25 +76,40 @@ class ExtensionsActivity : AppCompatActivity() {
 
     private fun promptAddRepo() {
         val input = android.widget.EditText(this).apply {
-            hint = "https://example.com/extensions/index.min.json"
+            hint = "https://keiyoushi.github.io/extensions/index.min.json"
             setTextColor(getColor(R.color.text_primary))
             setHintTextColor(getColor(R.color.text_secondary))
-        }
-        AlertDialog.Builder(this, R.style.Theme_MangaReader)
-            .setTitle("Añadir repositorio")
-            .setMessage("Pega la URL del índice del repo (index.json, index.min.json o la base del repo)")
-            .setView(input)
-            .setPositiveButton("Añadir") { _, _ ->
-                val url = input.text.toString().trim()
-                if (url.isNotBlank()) {
-                    val manager = app.extensionManager
-                    manager.repoBaseUrls = manager.repoBaseUrls + url
-                    Toast.makeText(this, "Repo añadido", Toast.LENGTH_SHORT).show()
-                    refresh()
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            imeOptions = EditorInfo.IME_ACTION_DONE
+            setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == EditorInfo.IME_ACTION_DONE) {
+                    addRepo(this.text.toString())
+                    true
+                } else {
+                    false
                 }
             }
+        }
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle("Añadir repositorio")
+            .setMessage("Pega la URL del índice del repo (index.json, index.min.json o la base del repo). Keiyoushi ya viene incluido por defecto.")
+            .setView(input)
+            .setPositiveButton("Añadir") { _, _ -> addRepo(input.text.toString()) }
             .setNegativeButton("Cancelar", null)
             .show()
+
+        // Evita que el teclado tape los botones al abrir el diálogo.
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN)
+    }
+
+    private fun addRepo(url: String) {
+        val trimmed = url.trim()
+        if (trimmed.isBlank()) return
+        val manager = app.extensionManager
+        manager.repoBaseUrls = manager.repoBaseUrls + trimmed
+        Toast.makeText(this, "Repo añadido", Toast.LENGTH_SHORT).show()
+        refresh()
     }
 
     private fun installExtension(ext: Extension.Available) {
