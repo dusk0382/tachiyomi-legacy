@@ -178,9 +178,9 @@ class ExtensionLoader(
             try {
                 val pkg = parseMethod.invoke(parser, file, 1 shl 2) // PARSE_MUST_BE_APK
                 val reqFeatures = pkg.javaClass.getField("reqFeatures").get(pkg) as? List<*>
-                val names = reqFeatures?.map {
+                val names = reqFeatures?.mapNotNull {
                     try {
-                        it.javaClass.getField("name").get(it) as? String
+                        it?.javaClass?.getField("name")?.get(it) as? String
                     } catch (_: Throwable) {
                         null
                     }
