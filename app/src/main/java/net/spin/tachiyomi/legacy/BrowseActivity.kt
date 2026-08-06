@@ -94,6 +94,8 @@ class BrowseActivity : AppCompatActivity() {
         val app = application as App
         app.extensionManager.reloadInstalled()
         SourceManager.registerExtensions(app.extensionManager.installedExtensions)
+        net.spin.tachiyomi.legacy.kotatsu.KotatsuSourceManager.init(app.networkHelper)
+        net.spin.tachiyomi.legacy.kotatsu.KotatsuSourceManager.registerAll()
         reloadSources()
     }
 

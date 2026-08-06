@@ -44,6 +44,8 @@ google-services = "4.5.0"
 image-decoder = "e03b81e18a"
 injekt = "ee267b2e27"
 jsoup = "1.22.2"
+jspecify = "1.0.0"
+json = "20240303"
 junit = "6.1.2"
 kotest-assertions = "6.2.2"
 kotlin-gradle = "2.4.0"
@@ -82,6 +84,7 @@ android-gradle = { module = "com.android.tools.build:gradle", version.ref = "and
 androidx-activity = { module = "androidx.activity:activity", version.ref = "androidx-activity" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity-compose" }
 androidx-annotation = { module = "androidx.annotation:annotation", version.ref = "androidx-annotation" }
+androidx-collection = { module = "androidx.collection:collection", version = "1.4.1" }
 androidx-appCompat = { module = "androidx.appcompat:appcompat", version.ref = "androidx-appCompat" }
 androidx-benchmark-macroJunit4 = { module = "androidx.benchmark:benchmark-macro-junit4", version.ref = "androidx-benchmark" }
 androidx-biometric = { module = "androidx.biometric:biometric-ktx", version.ref = "androidx-biometric" }
@@ -138,6 +141,8 @@ flexibleAdapter = { module = "com.github.arkon.FlexibleAdapter:flexible-adapter"
 image-decoder = { module = "com.github.mihonapp:image-decoder", version.ref = "image-decoder" }
 injekt = { module = "com.github.null2264:injekt-koin", version.ref = "injekt" }
 jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
+jspecify = { module = "org.jspecify:jspecify", version.ref = "jspecify" }
+json = { module = "org.json:json", version.ref = "json" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 kotest-assertions = { module = "io.kotest:kotest-assertions-core", version.ref = "kotest-assertions" }

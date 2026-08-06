@@ -1,0 +1,21 @@
+package org.koitharu.kotatsu.parsers.site.mangareader.id
+
+import org.koitharu.kotatsu.parsers.Broken
+import org.koitharu.kotatsu.parsers.MangaLoaderContext
+import org.koitharu.kotatsu.parsers.MangaSourceParser
+import org.koitharu.kotatsu.parsers.model.MangaParserSource
+import org.koitharu.kotatsu.parsers.site.mangareader.MangaReaderParser
+import java.util.*
+
+@Broken
+@MangaSourceParser("MANGAYARO", "MangaYaro", "id")
+internal class Mangayaro(context: MangaLoaderContext) :
+	MangaReaderParser(
+		context,
+		MangaParserSource.MANGAYARO,
+		"mangayaro.id",
+		pageSize = 20,
+		searchPageSize = 20,
+	) {
+	override val sourceLocale: Locale = Locale.ENGLISH
+}

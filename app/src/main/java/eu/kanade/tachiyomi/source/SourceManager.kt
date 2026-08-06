@@ -24,6 +24,16 @@ object SourceManager {
         sources.putAll(next)
     }
 
+    /**
+     * Merges the given Kotatsu bridge sources into the registry without
+     * clearing the sources from installed extensions.
+     */
+    fun registerKotatsuSources(kotatsuSources: List<Source>) {
+        kotatsuSources.forEach { source ->
+            sources[source.id] = source
+        }
+    }
+
     /** Clears the registry. */
     fun clear() {
         sources.clear()

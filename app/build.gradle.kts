@@ -80,6 +80,7 @@ kotlin {
 dependencies {
     implementation(projects.sourceApi)
     implementation(projects.core.common)
+    implementation(projects.kotatsuParsers)
 
     implementation(libs.androidx.activity)
     implementation(libs.androidx.appCompat)
@@ -93,6 +94,7 @@ dependencies {
     implementation(libs.androidx.viewPager2)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.material)
+    implementation(libs.quickJs)
 
     coreLibraryDesugaring(libs.android.desugar)
 }
