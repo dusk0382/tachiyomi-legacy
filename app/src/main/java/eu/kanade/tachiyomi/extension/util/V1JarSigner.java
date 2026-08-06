@@ -69,12 +69,17 @@ public final class V1JarSigner {
         try (ZipInputStream zin = new ZipInputStream(new FileInputStream(input))) {
             ZipEntry e;
             while ((e = zin.getNextEntry()) != null) {
-                if (e.getName().startsWith("META-INF/")) {
+                String name = e.getName();
+                // Skip META-INF (old signatures), directory entries and zip
+                // artifacts with an empty name: Android 6's StrictJarFile rejects
+                // any MANIFEST section whose file does not exist as a zip entry
+                // ("File  in manifest does not exist").
+                if (name.isEmpty() || e.isDirectory() || name.startsWith("META-INF/")) {
                     zin.closeEntry();
                     continue;
                 }
-                entries.put(e.getName(), readAll(zin));
-                methods.put(e.getName(), e.getMethod());
+                entries.put(name, readAll(zin));
+                methods.put(name, e.getMethod());
                 zin.closeEntry();
             }
         }
