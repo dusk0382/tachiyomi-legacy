@@ -84,7 +84,7 @@ class ExtensionsActivity : AppCompatActivity() {
 
     private fun promptAddRepo() {
         val input = android.widget.EditText(this).apply {
-            hint = "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json"
+            hint = "https://raw.githubusercontent.com/tachiyomiorg/extensions/repo/index.json"
             setTextColor(getColor(R.color.text_primary))
             setHintTextColor(getColor(R.color.text_secondary))
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
@@ -101,7 +101,7 @@ class ExtensionsActivity : AppCompatActivity() {
 
         val dialog = MaterialAlertDialogBuilder(this)
             .setTitle("Añadir repositorio")
-            .setMessage("Pega la URL del índice del repo (index.json, index.min.json o la base del repo). Keiyoushi ya viene incluido por defecto.")
+            .setMessage("Pega la URL del índice del repo (index.json, index.min.json o la base del repo). El repo por defecto es el archivado original (tachiyomiorg, minSdk 21), el único compatible con Android 6.")
             .setView(input)
             .setPositiveButton("Añadir") { _, _ -> addRepo(input.text.toString()) }
             .setNegativeButton("Cancelar", null)

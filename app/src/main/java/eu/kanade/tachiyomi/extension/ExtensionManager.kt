@@ -28,7 +28,11 @@ class ExtensionManager(
     private val api: ExtensionApi,
 ) {
 
-    private val defaultRepoBaseUrl = "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json"
+    // Las extensiones actuales de keiyoushi exigen minSdk 26 y la tablet es API 23:
+    // el PackageParser de Android 6 las rechaza en el parseo (Requires newer sdk
+    // version #26). El repo original archivado (tachiyomiorg/extensions) tiene
+    // extensiones con minSdk 21 y firma v1+v2, compatibles con Android 6.
+    private val defaultRepoBaseUrl = "https://raw.githubusercontent.com/tachiyomiorg/extensions/repo/index.json"
 
     private companion object {
         const val TAG = "ExtensionInstall"
