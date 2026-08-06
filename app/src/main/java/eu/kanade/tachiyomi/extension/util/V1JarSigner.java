@@ -2,12 +2,13 @@ package eu.kanade.tachiyomi.extension.util;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Enumeration;
+import java.util.zip.ZipFile;
 import java.security.MessageDigest;
 import java.security.PrivateKey;
 import java.security.Signature;
@@ -64,23 +65,27 @@ public final class V1JarSigner {
      */
     public static void sign(File input, File output, PrivateKey key, List<X509Certificate> chain) throws Exception {
         // 1. Read all original entries (drop old META-INF signature files).
+        // Read with ZipFile (central directory), NOT ZipInputStream: some legacy
+        // extension APKs have bytes before the first local file header, which
+        // Android 6's ZipInputStream reports as a phantom entry and throws
+        // "Entry is not named". ZipFile skips such prefixes and returns only the
+        // real entries. Directory entries and empty names are dropped: Android 6's
+        // StrictJarFile rejects any MANIFEST section whose file does not exist as
+        // a zip entry ("File  in manifest does not exist").
         Map<String, byte[]> entries = new LinkedHashMap<String, byte[]>();
         Map<String, Integer> methods = new LinkedHashMap<String, Integer>();
-        try (ZipInputStream zin = new ZipInputStream(new FileInputStream(input))) {
-            ZipEntry e;
-            while ((e = zin.getNextEntry()) != null) {
+        try (ZipFile zipFile = new ZipFile(input)) {
+            Enumeration<? extends ZipEntry> en = zipFile.entries();
+            while (en.hasMoreElements()) {
+                ZipEntry e = en.nextElement();
                 String name = e.getName();
-                // Skip META-INF (old signatures), directory entries and zip
-                // artifacts with an empty name: Android 6's StrictJarFile rejects
-                // any MANIFEST section whose file does not exist as a zip entry
-                // ("File  in manifest does not exist").
                 if (name.isEmpty() || e.isDirectory() || name.startsWith("META-INF/")) {
-                    zin.closeEntry();
                     continue;
                 }
-                entries.put(name, readAll(zin));
+                try (InputStream in = zipFile.getInputStream(e)) {
+                    entries.put(name, readAll(in));
+                }
                 methods.put(name, e.getMethod());
-                zin.closeEntry();
             }
         }
 
