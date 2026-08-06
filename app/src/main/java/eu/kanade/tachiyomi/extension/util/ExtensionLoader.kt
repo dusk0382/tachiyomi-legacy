@@ -60,10 +60,16 @@ class ExtensionLoader(
     private fun getPrivateExtensionDir(context: Context) = File(context.filesDir, "exts")
 
     fun installPrivateExtensionFile(context: Context, file: File): Boolean {
-        val extension = context.packageManager.getPackageArchiveInfo(file.absolutePath, PACKAGE_FLAGS)
+        val packageInfo = context.packageManager.getPackageArchiveInfo(file.absolutePath, PACKAGE_FLAGS)
+        val extension = packageInfo
             ?.takeIf { isPackageAnExtension(it) }
             ?: run {
-                Log.e(TAG, "getPackageArchiveInfo no pudo parsear el APK firmado: ${file.absolutePath}")
+                Log.e(TAG, "getPackageArchiveInfo no pudo parsear el APK firmado: ${file.absolutePath} (size=${file.length()}, exists=${file.exists()})")
+                if (packageInfo == null) {
+                    logRealParseError(file)
+                } else {
+                    Log.e(TAG, "Sí parseó pero no es extensión: reqFeatures=${packageInfo.reqFeatures?.map { it.name }}")
+                }
                 return false
             }
         val currentExtension = getExtensionPackageInfoFromPkgName(context, extension.packageName)
@@ -157,6 +163,35 @@ class ExtensionLoader(
         return context.packageManager.getPackageArchiveInfo(privateExtensionFile.absolutePath, PACKAGE_FLAGS)
             ?.takeIf { isPackageAnExtension(it) }
             ?.also { it.applicationInfo!!.fixBasePaths(privateExtensionFile.absolutePath) }
+    }
+
+    /**
+     * Android 6 getPackageArchiveInfo devuelve null para cualquier fallo de parseo
+     * sin exponer el motivo. Este método repite el parseo con el PackageParser
+     * oculto vía reflexión para obtener la excepción real (solo diagnóstico).
+     */
+    private fun logRealParseError(file: File) {
+        try {
+            val parserClass = Class.forName("android.content.pm.PackageParser")
+            val parser = parserClass.getConstructor().newInstance()
+            val parseMethod = parserClass.getMethod("parsePackage", File::class.java, Int::class.javaPrimitiveType)
+            try {
+                val pkg = parseMethod.invoke(parser, file, 1 shl 2) // PARSE_MUST_BE_APK
+                val reqFeatures = pkg.javaClass.getField("reqFeatures").get(pkg) as? List<*>
+                val names = reqFeatures?.map {
+                    try {
+                        it.javaClass.getField("name").get(it) as? String
+                    } catch (_: Throwable) {
+                        null
+                    }
+                }
+                Log.e(TAG, "PackageParser directo SÍ parseó. reqFeatures=$names")
+            } catch (e: java.lang.reflect.InvocationTargetException) {
+                Log.e(TAG, "PackageParser real error: ${e.cause?.message ?: e.message}")
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "Reflexión PackageParser no disponible: ${e.message}")
+        }
     }
 
     /**
