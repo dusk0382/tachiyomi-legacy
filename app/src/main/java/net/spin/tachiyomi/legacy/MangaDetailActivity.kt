@@ -3,16 +3,20 @@ package net.spin.tachiyomi.legacy
 import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
-import android.view.Gravity
+import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.CheckBox
-import android.widget.LinearLayout
+import android.widget.ImageView
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import eu.kanade.tachiyomi.source.SourceManager
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
@@ -20,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import net.spin.tachiyomi.legacy.data.db.LibraryRepository
 import net.spin.tachiyomi.legacy.data.model.ChapterRef
 import net.spin.tachiyomi.legacy.data.model.MangaRef
@@ -31,11 +36,14 @@ import net.spin.tachiyomi.legacy.util.TimeUtil
 /**
  * Manga detail: shows the fetched details plus the chapter list.
  * Chapters are clickable to open the reader; favorites can be toggled.
+ * La lista usa un único RecyclerView (header + capítulos) que virtualiza las
+ * filas: mangas con 1000+ capítulos ya no crean miles de vistas en memoria.
  */
 class MangaDetailActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMangaDetailBinding
     private lateinit var repository: LibraryRepository
+    private lateinit var adapter: DetailAdapter
 
     private var sourceId: Long = 0
     private var mangaUrl = ""
@@ -47,11 +55,18 @@ class MangaDetailActivity : AppCompatActivity() {
     private var isDownloading = false
 
     private var chapters: List<SChapter> = emptyList()
+    private var downloadedNames: Set<String> = emptySet()
+
+    /** Estado pendiente del header: se aplica cuando el RecyclerView lo bindea. */
+    private var pendingThumb: String? = null
+    private var detailsLoaded = false
 
     /** Modo selección: long-press en un capítulo activa checkboxes para descarga selectiva. */
     private var selectionMode = false
     private val selectedChapters = LinkedHashSet<String>()
     private val chapterCheckboxes = HashMap<String, CheckBox>()
+
+    private var header: HeaderHolder? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,6 +79,11 @@ class MangaDetailActivity : AppCompatActivity() {
         mangaUrl = intent.getStringExtra("manga_url") ?: ""
         mangaTitle = intent.getStringExtra("manga_title") ?: ""
         binding.titleText.text = mangaTitle
+
+        adapter = DetailAdapter()
+        binding.chaptersContainer.layoutManager = LinearLayoutManager(this)
+        binding.chaptersContainer.itemAnimator = null
+        binding.chaptersContainer.adapter = adapter
 
         binding.btnBack.setOnClickListener {
             if (selectionMode) exitSelection() else finish()
@@ -153,7 +173,7 @@ class MangaDetailActivity : AppCompatActivity() {
             if (selected.isEmpty()) return
             AlertDialog.Builder(this)
                 .setTitle("¿Descargar seleccionados?")
-                .setMessage("Se descargarán ${selected.size} capítulos a 'Descargas/MangaLite/$mangaTitle'.\nPuedes seguir usando la app mientras descarga.")
+                .setMessage("Se descargarán ${selected.size} capítulos a 'Descargas/MangaLite/$mangaTitle'.\\nPuedes seguir usando la app mientras descarga.")
                 .setPositiveButton("Descargar") { _, _ -> startDownload(selected) }
                 .setNegativeButton("Cancelar", null)
                 .show()
@@ -166,8 +186,9 @@ class MangaDetailActivity : AppCompatActivity() {
                 .setMessage("Se borrarán los capítulos descargados de '$mangaTitle'.")
                 .setPositiveButton("Eliminar") { _, _ ->
                     MangaDownloader.deleteManga(mangaTitle)
+                    refreshDownloadedState()
                     updateDownloadIcon()
-                    refreshChapterRows()
+                    adapter.notifyDataSetChanged()
                     Toast.makeText(this, "Descarga eliminada", Toast.LENGTH_SHORT).show()
                 }
                 .setNegativeButton("Cancelar", null)
@@ -183,8 +204,8 @@ class MangaDetailActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("¿Descargar el manga?")
             .setMessage(
-                "Se descargarán ${chapters.size} capítulos a 'Descargas/MangaLite/$mangaTitle'.\n" +
-                    "Puedes seguir usando la app mientras descarga.\n\n" +
+                "Se descargarán ${chapters.size} capítulos a 'Descargas/MangaLite/$mangaTitle'.\\n" +
+                    "Puedes seguir usando la app mientras descarga.\\n\\n" +
                     "💡 ¿Solo algunos? Mantén pulsado un capítulo para elegirlos."
             )
             .setPositiveButton("Descargar todos") { _, _ -> startDownload(chapters) }
@@ -197,7 +218,7 @@ class MangaDetailActivity : AppCompatActivity() {
         selectionMode = true
         selectedChapters.clear()
         updateSelectionStatus()
-        refreshChapterRows()
+        adapter.notifyDataSetChanged()
     }
 
     private fun toggleSelection(url: String) {
@@ -208,8 +229,8 @@ class MangaDetailActivity : AppCompatActivity() {
 
     private fun updateSelectionStatus() {
         if (!selectionMode) return
-        binding.downloadStatus.visibility = View.VISIBLE
-        binding.downloadStatus.text =
+        header?.downloadStatus?.visibility = View.VISIBLE
+        header?.downloadStatus?.text =
             "${selectedChapters.size} seleccionados — toca ⬇ para descargar"
         binding.btnDownload.contentDescription =
             "Descargar ${selectedChapters.size} capítulos seleccionados"
@@ -219,8 +240,8 @@ class MangaDetailActivity : AppCompatActivity() {
         selectionMode = false
         selectedChapters.clear()
         chapterCheckboxes.clear()
-        binding.downloadStatus.visibility = View.GONE
-        refreshChapterRows()
+        header?.downloadStatus?.visibility = View.GONE
+        adapter.notifyDataSetChanged()
         updateDownloadIcon()
     }
 
@@ -236,13 +257,13 @@ class MangaDetailActivity : AppCompatActivity() {
         isDownloading = true
         binding.btnDownload.isEnabled = false
         binding.btnDownload.setImageResource(android.R.drawable.ic_popup_sync)
-        binding.downloadStatus.visibility = View.VISIBLE
-        binding.downloadStatus.text = "Descargando 0/${list.size}..."
+        header?.downloadStatus?.visibility = View.VISIBLE
+        header?.downloadStatus?.text = "Descargando 0/${list.size}..."
 
         lifecycleScope.launch(Dispatchers.IO) {
             MangaDownloader.downloadManga(source, list, mangaTitle) { done, total ->
                 runOnUiThread {
-                    binding.downloadStatus.text = "Descargando $done/$total..."
+                    header?.downloadStatus?.text = "Descargando $done/$total..."
                 }
             }
 
@@ -253,12 +274,13 @@ class MangaDetailActivity : AppCompatActivity() {
                     exitSelection()
                 } else {
                     updateDownloadIcon()
-                    refreshChapterRows()
                 }
-                binding.downloadStatus.visibility = View.VISIBLE
-                binding.downloadStatus.text = "Descarga completa"
-                binding.downloadStatus.postDelayed({
-                    binding.downloadStatus.visibility = View.GONE
+                refreshDownloadedState()
+                adapter.notifyDataSetChanged()
+                header?.downloadStatus?.visibility = View.VISIBLE
+                header?.downloadStatus?.text = "Descarga completa"
+                header?.downloadStatus?.postDelayed({
+                    header?.downloadStatus?.visibility = View.GONE
                 }, 3000)
                 Toast.makeText(
                     this@MangaDetailActivity,
@@ -291,6 +313,20 @@ class MangaDetailActivity : AppCompatActivity() {
             if (MangaDownloader.isMangaDownloaded(mangaTitle)) "Descargado (tocar para eliminar)" else "Descargar manga"
     }
 
+    /**
+     * Recarga el set de CBZ descargados (una sola llamada a disco, en IO) y
+     * re-renderiza la lista cuando llega — así el marcador ⬇ se actualiza.
+     */
+    private fun refreshDownloadedState() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val names = MangaDownloader.downloadedCbzNames(mangaTitle)
+            withContext(Dispatchers.Main) {
+                downloadedNames = names
+                adapter.notifyDataSetChanged()
+            }
+        }
+    }
+
     private fun loadDetails() {
         val source = SourceManager.getByIdOrNull(sourceId) ?: run {
             Toast.makeText(this, "Fuente no instalada", Toast.LENGTH_SHORT).show()
@@ -303,10 +339,8 @@ class MangaDetailActivity : AppCompatActivity() {
             title = mangaTitle
         }
 
-        binding.cover.setImageResource(android.R.color.darker_gray)
-        intent.getStringExtra("manga_thumb")?.let {
-            ImageLoader.load(it, binding.cover)
-        }
+        pendingThumb = intent.getStringExtra("manga_thumb")
+        header?.cover?.setImageResource(android.R.color.darker_gray)
 
         // Detalles y capitulos se cargan EN PARALELO y cada uno renderiza
         // en cuanto llega (sin que la lista espere a que acabe el detalle).
@@ -318,12 +352,10 @@ class MangaDetailActivity : AppCompatActivity() {
                 launch {
                     details.await().onSuccess {
                         manga = it
+                        detailsLoaded = true
                         binding.titleText.text = it.title
-                        binding.authorText.text = listOfNotNull(it.author, it.artist).filter { it.isNotBlank() }.joinToString(" · ")
-                        binding.statusText.text = statusLabel(it.status)
-                        binding.genreText.text = it.genre
-                        binding.descriptionText.text = it.description?.trim()
-                        it.thumbnail_url?.let { thumb -> ImageLoader.load(thumb, binding.cover) }
+                        it.thumbnail_url?.let { pendingThumb = it }
+                        applyHeaderDetails()
 
                         // Historial: registrar el manga como visto recientemente,
                         // conservando el progreso del ultimo capitulo si ya existia.
@@ -349,7 +381,7 @@ class MangaDetailActivity : AppCompatActivity() {
                     chapters.await().onSuccess { list ->
                         renderChapters(list)
                     }.onFailure {
-                        binding.chaptersProgress.visibility = View.GONE
+                        header?.chaptersProgress?.visibility = View.GONE
                         Toast.makeText(this@MangaDetailActivity, "Error capítulos: ${it.message}", Toast.LENGTH_SHORT).show()
                     }
                 }
@@ -360,12 +392,13 @@ class MangaDetailActivity : AppCompatActivity() {
 
         updatePrivateIcon()
         updateDownloadIcon()
+        refreshDownloadedState()
     }
 
     private fun renderChapters(chapters: List<SChapter>) {
-        binding.chaptersProgress.visibility = View.GONE
+        header?.chaptersProgress?.visibility = View.GONE
         this.chapters = chapters
-        refreshChapterRows()
+        adapter.notifyDataSetChanged()
 
         // Persist the chapter list for later offline/progress use.
         // En background: no bloquear el renderizado de la lista en pantalla.
@@ -400,92 +433,8 @@ class MangaDetailActivity : AppCompatActivity() {
         }
     }
 
-    private fun chapterRow(chapter: SChapter): View {
-        val openChapterUrl = intent.getStringExtra("open_chapter_url")
-        val isCurrent = !openChapterUrl.isNullOrBlank() && chapter.url == openChapterUrl
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(12, 10, 12, 10)
-            background = if (isCurrent) {
-                androidx.core.content.ContextCompat.getDrawable(
-                    this@MangaDetailActivity,
-                    R.drawable.item_current_chapter,
-                )
-            } else {
-                androidx.core.content.ContextCompat.getDrawable(this@MangaDetailActivity, android.R.drawable.list_selector_background)
-            }
-        }
-
-        // Checkbox de selección (solo visible en modo selección).
-        val checkbox = CheckBox(this).apply {
-            visibility = if (selectionMode) View.VISIBLE else View.GONE
-            isChecked = selectedChapters.contains(chapter.url)
-            isClickable = false
-            isFocusable = false
-        }
-        if (selectionMode) chapterCheckboxes[chapter.url] = checkbox
-
-        val texts = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        val downloaded = MangaDownloader.chapterFile(mangaTitle, chapter.name, chapter.url) != null
-        texts.addView(TextView(this).apply {
-            text = (if (downloaded) "⬇ " else "") + chapter.name
-            textSize = 14f
-            setTextColor(getColor(R.color.text_primary))
-        })
-        if (chapter.date_upload > 0L) {
-            texts.addView(TextView(this).apply {
-                text = formatUploadDate(chapter.date_upload)
-                textSize = 11f
-                setTextColor(getColor(R.color.text_secondary))
-                setPadding(0, 2, 0, 0)
-            })
-        }
-        row.addView(checkbox)
-        row.addView(texts)
-
-        row.setOnClickListener {
-            if (selectionMode) {
-                toggleSelection(chapter.url)
-            } else {
-                // Si el capitulo esta descargado, abrir el CBZ local (offline).
-                val local = MangaDownloader.chapterFile(mangaTitle, chapter.name, chapter.url)
-                if (local != null) {
-                    openLocalReader(local, chapter.name)
-                } else {
-                    openReader(chapter)
-                }
-            }
-        }
-        row.setOnLongClickListener {
-            if (!isDownloading) {
-                if (!selectionMode) enterSelection()
-                toggleSelection(chapter.url)
-            }
-            true
-        }
-        return row
-    }
-
-    /** Re-renderiza solo las filas (sin re-persistir ni re-disparar el auto-open). */
-    private fun refreshChapterRows() {
-        chapterCheckboxes.clear()
-        binding.chaptersContainer.removeAllViews()
-        chapters.forEach { chapter ->
-            binding.chaptersContainer.addView(chapterRow(chapter))
-        }
-    }
-
-    override fun onBackPressed() {
-        if (selectionMode) {
-            exitSelection()
-        } else {
-            super.onBackPressed()
-        }
-    }
+    /** Fecha relativa para lo reciente ("hace 3 dias"), dd/MM/yyyy para lo antiguo. */
+    private fun formatUploadDate(dateMillis: Long): String = TimeUtil.formatRelative(dateMillis)
 
     private fun openLocalReader(file: java.io.File, chapterName: String) {
         val lastPage = Prefs.getLastPage(file.absolutePath)
@@ -496,9 +445,6 @@ class MangaDetailActivity : AppCompatActivity() {
         }
         startActivity(intent)
     }
-
-    /** Fecha relativa para lo reciente ("hace 3 dias"), dd/MM/yyyy para lo antiguo. */
-    private fun formatUploadDate(dateMillis: Long): String = TimeUtil.formatRelative(dateMillis)
 
     private fun openReader(chapter: SChapter, openPage: Int = -1) {
         val intent = Intent(this, ReaderActivity::class.java).apply {
@@ -536,5 +482,139 @@ class MangaDetailActivity : AppCompatActivity() {
             4 -> "En hiato"
             else -> ""
         }
+    }
+
+    override fun onBackPressed() {
+        if (selectionMode) {
+            exitSelection()
+        } else {
+            super.onBackPressed()
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Adapter: item 0 = header (detalle), resto = capítulos.
+    // ------------------------------------------------------------------
+
+    private inner class DetailAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+
+        override fun getItemCount(): Int = chapters.size + 1
+
+        override fun getItemViewType(position: Int): Int =
+            if (position == 0) TYPE_HEADER else TYPE_CHAPTER
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+            val inflater = LayoutInflater.from(parent.context)
+            return if (viewType == TYPE_HEADER) {
+                HeaderHolder(inflater.inflate(R.layout.item_detail_header, parent, false))
+            } else {
+                ChapterHolder(inflater.inflate(R.layout.item_chapter_row, parent, false))
+            }
+        }
+
+        override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+            when (holder) {
+                is HeaderHolder -> {
+                    header = holder
+                    bindHeader(holder)
+                }
+                is ChapterHolder -> {
+                    val chapter = chapters[position - 1]
+                    holder.bind(chapter, position - 1)
+                }
+            }
+        }
+    }
+
+    private fun bindHeader(h: HeaderHolder) {
+        if (detailsLoaded) {
+            val it = manga
+            if (it != null) {
+                h.authorText.text = listOfNotNull(it.author, it.artist).filter { it.isNotBlank() }.joinToString(" · ")
+                h.statusText.text = statusLabel(it.status)
+                h.genreText.text = it.genre
+                h.descriptionText.text = it.description?.trim()
+            }
+        }
+        pendingThumb?.let { thumb -> ImageLoader.load(thumb, h.cover) }
+
+        h.downloadStatus.visibility = if (selectionMode) View.VISIBLE else View.GONE
+        if (selectionMode) h.downloadStatus.text =
+            "${selectedChapters.size} seleccionados — toca ⬇ para descargar"
+    }
+
+    /** Re-aplica los detalles al header si ya está bindeado (o queda pendiente). */
+    private fun applyHeaderDetails() {
+        val h = header ?: return
+        val it = manga ?: return
+        h.authorText.text = listOfNotNull(it.author, it.artist).filter { it.isNotBlank() }.joinToString(" · ")
+        h.statusText.text = statusLabel(it.status)
+        h.genreText.text = it.genre
+        h.descriptionText.text = it.description?.trim()
+        pendingThumb?.let { thumb -> ImageLoader.load(thumb, h.cover) }
+    }
+
+    private inner class HeaderHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val cover: ImageView = view.findViewById(R.id.cover)
+        val authorText: TextView = view.findViewById(R.id.authorText)
+        val statusText: TextView = view.findViewById(R.id.statusText)
+        val genreText: TextView = view.findViewById(R.id.genreText)
+        val descriptionText: TextView = view.findViewById(R.id.descriptionText)
+        val downloadStatus: TextView = view.findViewById(R.id.downloadStatus)
+        val chaptersProgress: ProgressBar = view.findViewById(R.id.chaptersProgress)
+    }
+
+    private inner class ChapterHolder(view: View) : RecyclerView.ViewHolder(view) {
+        private val checkbox: CheckBox = view.findViewById(R.id.chapterCheck)
+        private val name: TextView = view.findViewById(R.id.chapterName)
+        private val date: TextView = view.findViewById(R.id.chapterDate)
+
+        fun bind(chapter: SChapter, index: Int) {
+            val downloaded = MangaDownloader.isDownloaded(chapter.name, chapter.url, downloadedNames)
+            checkbox.visibility = if (selectionMode) View.VISIBLE else View.GONE
+            checkbox.isChecked = selectedChapters.contains(chapter.url)
+            if (selectionMode) chapterCheckboxes[chapter.url] = checkbox
+
+            name.text = (if (downloaded) "⬇ " else "") + chapter.name
+
+            if (chapter.date_upload > 0L) {
+                date.text = formatUploadDate(chapter.date_upload)
+                date.visibility = View.VISIBLE
+            } else {
+                date.visibility = View.GONE
+            }
+
+            itemView.setOnClickListener {
+                if (selectionMode) {
+                    toggleSelection(chapter.url)
+                } else if (MangaDownloader.isDownloaded(chapter.name, chapter.url, downloadedNames)) {
+                    // Si el capitulo esta descargado, abrir el CBZ local (offline).
+                    MangaDownloader.chapterFile(mangaTitle, chapter.name, chapter.url)?.let {
+                        openLocalReader(it, chapter.name)
+                    } ?: openReader(chapter)
+                } else {
+                    openReader(chapter)
+                }
+            }
+            itemView.setOnLongClickListener {
+                if (!isDownloading) {
+                    if (!selectionMode) enterSelection()
+                    toggleSelection(chapter.url)
+                }
+                true
+            }
+            val openChapterUrl = intent.getStringExtra("open_chapter_url")
+            val isCurrent = !openChapterUrl.isNullOrBlank() && chapter.url == openChapterUrl
+            itemView.background = ContextCompat.getDrawable(
+                this@MangaDetailActivity,
+                if (isCurrent) R.drawable.item_current_chapter
+                else android.R.drawable.list_selector_background,
+            )
+        }
+    }
+
+    companion object {
+        private const val TYPE_HEADER = 0
+        private const val TYPE_CHAPTER = 1
     }
 }

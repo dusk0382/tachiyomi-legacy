@@ -13,7 +13,9 @@ import org.koitharu.kotatsu.parsers.model.MangaParserSource
  */
 object KotatsuSourceManager {
 
-    private const val ENABLED_LOCALES = "es,en,all,pt"
+    // Nota: 'pt' NO está — el usuario pidió eliminar todo el portugués (incluidas
+    // las 28 fuentes hentai PT que aparecían al activar NSFW).
+    private const val ENABLED_LOCALES = "es,en,all"
 
     private val excludedTypes = setOf(
         ContentType.HENTAI,
@@ -92,6 +94,8 @@ object KotatsuSourceManager {
         .filter { nsfwEnabled || it.contentType !in excludedTypes }
         .filter { it.locale in ENABLED_LOCALES.split(',') }
         .filter { it.name !in excludedNames }
+        // Blindaje extra: jamás registrar una fuente de portugués (cualquiera que sea su contentType).
+        .filter { it.locale != "pt" && !it.locale.startsWith("pt-") }
 
     /**
      * Activa/desactiva las fuentes NSFW reconstruyendo los bridges y

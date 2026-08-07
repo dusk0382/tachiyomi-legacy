@@ -38,10 +38,27 @@ object MangaDownloader {
     }
 
     /** Nombre del CBZ: nombre sanitizado + sufijo estable del url (evita colisiones). */
-    private fun cbzName(chapterName: String, chapterUrl: String): String {
+    internal fun cbzName(chapterName: String, chapterUrl: String): String {
         val suffix = chapterUrl.hashCode().toUInt().toString(16).take(6)
         return "${sanitize(chapterName)}_$suffix.cbz"
     }
+
+    /**
+     * Nombres de CBZ ya descargados del manga (una sola llamada a listFiles,
+     * sin mkdirs): para saber si un capítulo está descargado sin tocar disco
+     * por fila al renderizar listas largas.
+     */
+    fun downloadedCbzNames(mangaTitle: String): Set<String> {
+        val base = File(rootDir(), sanitize(mangaTitle))
+        return base.listFiles()
+            ?.filter { it.isFile && it.extension.equals("cbz", ignoreCase = true) }
+            ?.mapTo(HashSet()) { it.name }
+            ?: emptySet()
+    }
+
+    /** ¿Este capítulo concreto está descargado? (según un set precomputado) */
+    fun isDownloaded(chapterName: String, chapterUrl: String, downloadedNames: Set<String>): Boolean =
+        cbzName(chapterName, chapterUrl) in downloadedNames
 
     /**
      * Archivo CBZ del capítulo, o null si no está descargado.

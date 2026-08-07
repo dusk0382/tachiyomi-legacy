@@ -73,7 +73,15 @@ class ReaderActivity : AppCompatActivity(), ZoomableImageView.OnTapListener {
                     Prefs.setLastPage("${sourceId}_$chapterUrl", historyPage)
                 }
 
-                viewModel.initOnline(sourceId, chapterUrl, name, screenWidth, screenHeight)
+                val mangaTitle = intent.getStringExtra(EXTRA_MANGA_TITLE)
+                viewModel.initOnline(
+                    sourceId,
+                    chapterUrl,
+                    name,
+                    screenWidth,
+                    screenHeight,
+                    mangaTitle,
+                )
             }
             else -> {
                 finish()
@@ -162,6 +170,7 @@ class ReaderActivity : AppCompatActivity(), ZoomableImageView.OnTapListener {
             name,
             screenW(),
             screenH(),
+            intent.getStringExtra(EXTRA_MANGA_TITLE),
         )
         updateChapterInfo()
     }

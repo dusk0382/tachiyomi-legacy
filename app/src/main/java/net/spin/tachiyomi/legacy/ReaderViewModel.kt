@@ -109,6 +109,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         chapterName: String,
         screenWidth: Int,
         screenHeight: Int,
+        mangaTitle: String? = null,
     ) {
         val key = "${sourceId}_$chapterUrl"
         this.progressKey = key
@@ -117,7 +118,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
         if (reader != null || initializing) return
 
-        startOnline(sourceId, chapterUrl, chapterName)
+        startOnline(sourceId, chapterUrl, chapterName, mangaTitle)
     }
 
     /**
@@ -130,6 +131,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         chapterName: String,
         screenWidth: Int,
         screenHeight: Int,
+        mangaTitle: String? = null,
     ) {
         this.screenWidth = screenWidth
         this.screenHeight = screenHeight
@@ -154,11 +156,16 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             _pageCount.postValue(0)
             _isReady.postValue(false)
 
-            startOnline(sourceId, chapterUrl, chapterName)
+            startOnline(sourceId, chapterUrl, chapterName, mangaTitle)
         }
     }
 
-    private fun startOnline(sourceId: Long, chapterUrl: String, chapterName: String) {
+    private fun startOnline(
+        sourceId: Long,
+        chapterUrl: String,
+        chapterName: String,
+        mangaTitle: String? = null,
+    ) {
         val key = "${sourceId}_$chapterUrl"
         this.progressKey = key
 
@@ -167,19 +174,32 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
         scope.launch {
             try {
-                val source = SourceManager.getOrThrow(sourceId)
-                val chapter = SChapter.create().apply {
-                    this.url = chapterUrl
-                    this.name = chapterName
+                // Si el capítulo ya está descargado, abrir el CBZ local (offline)
+                // aunque vengamos del historial o del auto-open del detalle.
+                val localFile = mangaTitle?.let {
+                    net.spin.tachiyomi.legacy.MangaDownloader
+                        .chapterFile(it, chapterName, chapterUrl)
                 }
-                val pages = source.getPageList(chapter)
-                val r = OnlineChapterReader(getApplication(), source, chapter, pages)
+
+                val r: PageReader = if (localFile != null) {
+                    // Usar la ruta local como clave de progreso.
+                    progressKey = localFile.absolutePath
+                    CBZReader(localFile, getApplication())
+                } else {
+                    val source = SourceManager.getOrThrow(sourceId)
+                    val chapter = SChapter.create().apply {
+                        this.url = chapterUrl
+                        this.name = chapterName
+                    }
+                    val pages = source.getPageList(chapter)
+                    OnlineChapterReader(getApplication(), source, chapter, pages)
+                }
 
                 reader = r
 
                 val count = r.pageCount
-                val lastPage = Prefs.getLastPage(key)
-                Prefs.setTotalPages(key, count)
+                val lastPage = Prefs.getLastPage(progressKey ?: key)
+                Prefs.setTotalPages(progressKey ?: key, count)
 
                 val startPage = lastPage.coerceIn(0, (count - 1).coerceAtLeast(0))
 
