@@ -10,6 +10,7 @@ import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.network.NetworkPreferences
 import eu.kanade.tachiyomi.source.SourceManager
 import net.spin.tachiyomi.legacy.data.db.LibraryRepository
+import net.spin.tachiyomi.legacy.kotatsu.KotatsuSourceManager
 import net.spin.tachiyomi.legacy.util.ImageLoader
 import tachiyomi.core.common.preference.AndroidPreferenceStore
 import tachiyomi.core.common.preference.PreferenceStore
@@ -50,6 +51,10 @@ class App : Application() {
             api = ExtensionApi(networkHelper),
         )
         SourceManager.registerExtensions(extensionManager.installedExtensions)
+        // Las fuentes Kotatsu se registran desde el arranque: el lector directo
+        // (historial/favoritos) y el detalle las necesitan sin pasar por Explorar.
+        KotatsuSourceManager.init(networkHelper)
+        KotatsuSourceManager.registerAll()
         ImageLoader.init(networkHelper)
     }
 }
