@@ -28,6 +28,7 @@ import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import eu.kanade.tachiyomi.source.SourceManager
+import net.spin.tachiyomi.legacy.data.model.ChapterRef
 import net.spin.tachiyomi.legacy.databinding.ActivityLibraryBinding
 import net.spin.tachiyomi.legacy.util.ImageLoader
 import net.spin.tachiyomi.legacy.util.TimeUtil
@@ -523,6 +524,19 @@ class LibraryActivity : AppCompatActivity() {
     }
 
     private fun openOnlineManga(item: LibraryItem.Online) {
+        // Del historial: abrir DIRECTAMENTE el lector en el capitulo guardado
+        // (como Kotatsu), usando la lista de capitulos ya persistida en la BD.
+        // Solo si la lista local existe; si no, se abre el detalle como fallback.
+        if (item.isHistory && !item.lastChapterUrl.isNullOrBlank()) {
+            val saved = (application as App).libraryRepository
+                .getChapters(item.sourceId, item.url)
+            val target = saved.firstOrNull { it.url == item.lastChapterUrl }
+            if (target != null) {
+                openReaderDirect(item, saved, target)
+                return
+            }
+        }
+
         val intent = Intent(this, MangaDetailActivity::class.java).apply {
             putExtra("source_id", item.sourceId)
             putExtra("manga_url", item.url)
@@ -533,6 +547,31 @@ class LibraryActivity : AppCompatActivity() {
                 putExtra("open_chapter_url", item.lastChapterUrl)
                 if (item.lastPageIndex > 0) putExtra("open_chapter_page", item.lastPageIndex)
             }
+        }
+        startActivity(intent)
+    }
+
+    /** Abre el lector directamente en el capitulo guardado del historial. */
+    private fun openReaderDirect(
+        item: LibraryItem.Online,
+        chapters: List<ChapterRef>,
+        target: ChapterRef,
+    ) {
+        val intent = Intent(this, ReaderActivity::class.java).apply {
+            putExtra(ReaderActivity.EXTRA_SOURCE_ID, item.sourceId)
+            putExtra(ReaderActivity.EXTRA_CHAPTER_URL, target.url)
+            putExtra(ReaderActivity.EXTRA_CHAPTER_NAME, target.name)
+            putExtra(ReaderActivity.EXTRA_MANGA_URL, item.url)
+            putExtra(ReaderActivity.EXTRA_MANGA_TITLE, item.title)
+            if (item.lastPageIndex > 0) putExtra(ReaderActivity.EXTRA_LAST_PAGE, item.lastPageIndex)
+            putExtra(
+                ReaderActivity.EXTRA_CHAPTER_URLS,
+                ArrayList(chapters.map { it.url }),
+            )
+            putExtra(
+                ReaderActivity.EXTRA_CHAPTER_NAMES,
+                ArrayList(chapters.map { it.name }),
+            )
         }
         startActivity(intent)
     }

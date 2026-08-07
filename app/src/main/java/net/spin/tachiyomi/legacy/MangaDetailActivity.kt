@@ -14,6 +14,9 @@ import androidx.lifecycle.lifecycleScope
 import eu.kanade.tachiyomi.source.SourceManager
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import net.spin.tachiyomi.legacy.data.db.LibraryRepository
 import net.spin.tachiyomi.legacy.data.model.ChapterRef
@@ -99,42 +102,47 @@ class MangaDetailActivity : AppCompatActivity() {
             ImageLoader.load(it, binding.cover)
         }
 
+        // Detalles y capitulos se cargan EN PARALELO (la lista de capitulos
+        // aparece en cuanto llega, sin esperar a que acabe el detalle).
         lifecycleScope.launch {
-            val detailResult = OnlineRepository.fetchMangaDetails(sourceId, smanga)
-            detailResult.onSuccess {
-                manga = it
-                binding.titleText.text = it.title
-                binding.authorText.text = listOfNotNull(it.author, it.artist).filter { it.isNotBlank() }.joinToString(" · ")
-                binding.statusText.text = statusLabel(it.status)
-                binding.genreText.text = it.genre
-                binding.descriptionText.text = it.description?.trim()
-                it.thumbnail_url?.let { thumb -> ImageLoader.load(thumb, binding.cover) }
+            coroutineScope {
+                val details = async { OnlineRepository.fetchMangaDetails(sourceId, smanga) }
+                val chapters = async { OnlineRepository.fetchChapterList(sourceId, smanga) }
 
-                // Historial: registrar el manga como visto recientemente,
-                // conservando el progreso del ultimo capitulo si ya existia.
-                val existing = repository.getHistoryEntry(sourceId, it.url)
-                repository.upsertHistory(
-                    net.spin.tachiyomi.legacy.data.model.HistoryRef(
-                        sourceId = sourceId,
-                        url = it.url,
-                        title = it.title,
-                        thumbnailUrl = it.thumbnail_url,
-                        lastChapterUrl = existing?.lastChapterUrl,
-                        lastChapterName = existing?.lastChapterName,
-                        lastPageIndex = existing?.lastPageIndex ?: 0,
-                        lastTotalPages = existing?.lastTotalPages ?: 0,
-                    ),
-                )
-            }.onFailure {
-                Toast.makeText(this@MangaDetailActivity, "Error: ${it.message}", Toast.LENGTH_SHORT).show()
-            }
+                details.await().onSuccess {
+                    manga = it
+                    binding.titleText.text = it.title
+                    binding.authorText.text = listOfNotNull(it.author, it.artist).filter { it.isNotBlank() }.joinToString(" · ")
+                    binding.statusText.text = statusLabel(it.status)
+                    binding.genreText.text = it.genre
+                    binding.descriptionText.text = it.description?.trim()
+                    it.thumbnail_url?.let { thumb -> ImageLoader.load(thumb, binding.cover) }
 
-            val chaptersResult = OnlineRepository.fetchChapterList(sourceId, smanga)
-            chaptersResult.onSuccess { chapters ->
-                renderChapters(chapters)
-            }.onFailure {
-                binding.chaptersProgress.visibility = View.GONE
-                Toast.makeText(this@MangaDetailActivity, "Error capítulos: ${it.message}", Toast.LENGTH_SHORT).show()
+                    // Historial: registrar el manga como visto recientemente,
+                    // conservando el progreso del ultimo capitulo si ya existia.
+                    val existing = repository.getHistoryEntry(sourceId, it.url)
+                    repository.upsertHistory(
+                        net.spin.tachiyomi.legacy.data.model.HistoryRef(
+                            sourceId = sourceId,
+                            url = it.url,
+                            title = it.title,
+                            thumbnailUrl = it.thumbnail_url,
+                            lastChapterUrl = existing?.lastChapterUrl,
+                            lastChapterName = existing?.lastChapterName,
+                            lastPageIndex = existing?.lastPageIndex ?: 0,
+                            lastTotalPages = existing?.lastTotalPages ?: 0,
+                        ),
+                    )
+                }.onFailure {
+                    Toast.makeText(this@MangaDetailActivity, "Error: ${it.message}", Toast.LENGTH_SHORT).show()
+                }
+
+                chapters.await().onSuccess { list ->
+                    renderChapters(list)
+                }.onFailure {
+                    binding.chaptersProgress.visibility = View.GONE
+                    Toast.makeText(this@MangaDetailActivity, "Error capítulos: ${it.message}", Toast.LENGTH_SHORT).show()
+                }
             }
 
             updateFavoriteIcon()
@@ -147,19 +155,22 @@ class MangaDetailActivity : AppCompatActivity() {
         this.chapters = chapters
 
         // Persist the chapter list for later offline/progress use.
-        repository.upsertChapters(
-            chapters.map {
-                ChapterRef(
-                    sourceId = sourceId,
-                    mangaUrl = mangaUrl,
-                    url = it.url,
-                    name = it.name,
-                    scanlator = it.scanlator,
-                    chapterNumber = it.chapter_number.toDouble(),
-                    uploadDate = it.date_upload,
-                )
-            },
-        )
+        // En background: no bloquear el renderizado de la lista en pantalla.
+        lifecycleScope.launch(Dispatchers.IO) {
+            repository.upsertChapters(
+                chapters.map {
+                    ChapterRef(
+                        sourceId = sourceId,
+                        mangaUrl = mangaUrl,
+                        url = it.url,
+                        name = it.name,
+                        scanlator = it.scanlator,
+                        chapterNumber = it.chapter_number.toDouble(),
+                        uploadDate = it.date_upload,
+                    )
+                },
+            )
+        }
 
         chapters.forEach { chapter ->
             binding.chaptersContainer.addView(chapterRow(chapter))
