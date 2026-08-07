@@ -71,6 +71,14 @@ open /* SY <-- */ class NetworkHelper(
         .build()
 
     /**
+     * Cliente sin el interceptor de Cloudflare (WebView). Lo usan los parsers
+     * de Kotatsu: los 403 legitimos de APIs (rate-limit, tokens) no deben
+     * disparar un WebView de 30s que en Android 6 no resuelve el challenge.
+     */
+    /* SY --> */
+    open /* SY <-- */ val baseClient: OkHttpClient = clientBuilder.build()
+
+    /**
      * @deprecated Since extension-lib 1.5
      */
     @Deprecated("The regular client handles Cloudflare by default")

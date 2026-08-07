@@ -26,8 +26,13 @@ object KotatsuSourceManager {
     /** Construye (una vez) el loader y los bridges a partir del NetworkHelper de la app. */
     fun init(network: NetworkHelper) {
         if (bridges.isNotEmpty()) return
-        val loader = KotatsuLoaderContext(network.client, network.cookieJar)
-        bridges = allSources().map { KotatsuSourceBridge(it, loader, network.client) }
+        // baseClient no trae el CloudflareInterceptor WebView (30s muertos en
+        // 403 legitimos); el rate limiter evita el rate-limit de APIs tipo MangaFire.
+        val kotatsuClient = network.baseClient.newBuilder()
+            .addInterceptor(KotatsuRateLimitInterceptor())
+            .build()
+        val loader = KotatsuLoaderContext(kotatsuClient, network.cookieJar)
+        bridges = allSources().map { KotatsuSourceBridge(it, loader, kotatsuClient) }
     }
 
     fun registerAll() {

@@ -46,9 +46,12 @@ class KotatsuSourceBridge(
 
     override val client: OkHttpClient = httpClient
 
-    override val headers: Headers = Headers.Builder()
-        .add("User-Agent", KotatsuLoaderContext.DEFAULT_USER_AGENT)
-        .build()
+    override val headers: Headers
+        get() = Headers.Builder()
+            .add("User-Agent", KotatsuLoaderContext.DEFAULT_USER_AGENT)
+            .add("Referer", "https://${parser.domain}/")
+            .add("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+            .build()
 
     private val parser: MangaParser by lazy { loader.newParserInstance(parserSource) }
 
