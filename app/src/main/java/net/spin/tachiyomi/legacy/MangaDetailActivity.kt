@@ -170,8 +170,11 @@ class MangaDetailActivity : AppCompatActivity() {
         if (!openChapterUrl.isNullOrBlank()) {
             val target = chapters.firstOrNull { it.url == openChapterUrl }
             if (target != null) {
+                val openPage = intent.getIntExtra("open_chapter_page", -1)
                 binding.chaptersContainer.post {
-                    openReader(target)
+                    if (!isFinishing && !isDestroyed) {
+                        openReader(target, openPage)
+                    }
                 }
             }
         }
@@ -214,13 +217,14 @@ class MangaDetailActivity : AppCompatActivity() {
     /** Fecha relativa para lo reciente ("hace 3 dias"), dd/MM/yyyy para lo antiguo. */
     private fun formatUploadDate(dateMillis: Long): String = TimeUtil.formatRelative(dateMillis)
 
-    private fun openReader(chapter: SChapter) {
+    private fun openReader(chapter: SChapter, openPage: Int = -1) {
         val intent = Intent(this, ReaderActivity::class.java).apply {
             putExtra(ReaderActivity.EXTRA_SOURCE_ID, sourceId)
             putExtra(ReaderActivity.EXTRA_CHAPTER_URL, chapter.url)
             putExtra(ReaderActivity.EXTRA_CHAPTER_NAME, chapter.name)
             putExtra(ReaderActivity.EXTRA_MANGA_URL, mangaUrl)
             putExtra(ReaderActivity.EXTRA_MANGA_TITLE, mangaTitle)
+            if (openPage >= 0) putExtra(ReaderActivity.EXTRA_LAST_PAGE, openPage)
             putExtra(
                 ReaderActivity.EXTRA_CHAPTER_URLS,
                 ArrayList(chapters.map { it.url }),

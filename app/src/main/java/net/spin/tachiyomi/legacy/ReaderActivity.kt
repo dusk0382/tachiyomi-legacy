@@ -66,6 +66,13 @@ class ReaderActivity : AppCompatActivity(), ZoomableImageView.OnTapListener {
             path != null -> viewModel.initLocal(path, screenWidth, screenHeight)
             sourceId > 0 && !chapterUrl.isNullOrBlank() -> {
                 val name = intent.getStringExtra(EXTRA_CHAPTER_NAME) ?: chapterUrl
+
+                // El historial manda la pagina exacta: sincronizar Prefs antes de cargar.
+                val historyPage = intent.getIntExtra(EXTRA_LAST_PAGE, -1)
+                if (historyPage >= 0) {
+                    Prefs.setLastPage("${sourceId}_$chapterUrl", historyPage)
+                }
+
                 viewModel.initOnline(sourceId, chapterUrl, name, screenWidth, screenHeight)
             }
             else -> {
@@ -135,6 +142,8 @@ class ReaderActivity : AppCompatActivity(), ZoomableImageView.OnTapListener {
     /** Cambia al capitulo [index] de la lista (si existe y es valido). */
     private fun goToChapter(index: Int) {
         if (index < 0 || index >= chapterUrls.size) return
+        // Ignorar taps mientras el lector esta cargando (evita carreras con taps rapidos).
+        if (viewModel.isReady.value != true) return
         val url = chapterUrls[index]
         val name = chapterNames.getOrNull(index) ?: url
 
@@ -142,6 +151,10 @@ class ReaderActivity : AppCompatActivity(), ZoomableImageView.OnTapListener {
         updateHistoryProgress()
 
         currentChapterIndex = index
+
+        // Que la recreacion de la Activity (rotacion) conserve el capitulo actual.
+        intent.putExtra(EXTRA_CHAPTER_URL, url)
+        intent.putExtra(EXTRA_CHAPTER_NAME, name)
 
         viewModel.switchChapter(
             intent.getLongExtra(EXTRA_SOURCE_ID, -1L),

@@ -528,9 +528,10 @@ class LibraryActivity : AppCompatActivity() {
             putExtra("manga_url", item.url)
             putExtra("manga_title", item.title)
             item.thumbnailUrl?.let { putExtra("manga_thumb", it) }
-            // Del historial: abrir directo el capitulo donde se dejo.
+            // Del historial: abrir directo el capitulo donde se dejo (y su pagina).
             if (item.isHistory && !item.lastChapterUrl.isNullOrBlank()) {
                 putExtra("open_chapter_url", item.lastChapterUrl)
+                if (item.lastPageIndex > 0) putExtra("open_chapter_page", item.lastPageIndex)
             }
         }
         startActivity(intent)
