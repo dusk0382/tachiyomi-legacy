@@ -61,12 +61,20 @@ class KotatsuSourceBridge(
 
     /**
      * Tamaño de página REAL del parser (cada fuente define el suyo: 10-30).
-     * Antes se usaba un valor fijo (24) y el Paginator interno del parser
-     * desalineaba el offset + `hasNext` moría en la 1ª página (~10-24 mangas).
+     * El factory envuelve TODOS los parsers en [MangaParserWrapper], así que hay
+     * que desenrollar hasta el parser concreto para leer su pageSize: si no, se
+     * usaba un valor fijo (24) y el Paginator interno desalineaba el offset +
+     * `hasNext` moría en la 1ª página (~10-24 mangas).
      */
     @OptIn(org.koitharu.kotatsu.parsers.InternalParsersApi::class)
     private val parserPageSize: Int
-        get() = (parser as? org.koitharu.kotatsu.parsers.core.PagedMangaParser)?.pageSize ?: 24
+        get() {
+            var current: org.koitharu.kotatsu.parsers.MangaParser = parser
+            while (current is org.koitharu.kotatsu.parsers.core.MangaParserWrapper) {
+                current = current.delegate
+            }
+            return (current as? org.koitharu.kotatsu.parsers.core.PagedMangaParser)?.pageSize ?: 24
+        }
 
     // ---------------------------------------------------------------------
     // Mapeo de modelos

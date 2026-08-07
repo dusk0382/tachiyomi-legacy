@@ -11,8 +11,8 @@ import org.koitharu.kotatsu.parsers.model.*
 import org.koitharu.kotatsu.parsers.model.search.MangaSearchQuery
 import org.koitharu.kotatsu.parsers.util.mergeWith
 
-internal class MangaParserWrapper(
-	private val delegate: MangaParser,
+public class MangaParserWrapper(
+	public val delegate: MangaParser,
 ) : MangaParser by delegate {
 
 	override val authorizationProvider: MangaParserAuthProvider?
