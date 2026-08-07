@@ -1,5 +1,6 @@
 package net.spin.tachiyomi.legacy
 
+import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -7,6 +8,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.widget.ArrayAdapter
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
@@ -22,10 +24,13 @@ import net.spin.tachiyomi.legacy.databinding.ActivityCatalogBinding
 import net.spin.tachiyomi.legacy.databinding.ItemMangaOnlineBinding
 import net.spin.tachiyomi.legacy.data.online.OnlineRepository
 import net.spin.tachiyomi.legacy.util.ImageLoader
+import org.koitharu.kotatsu.parsers.model.MangaTag
+import org.koitharu.kotatsu.parsers.model.SortOrder
 
 /**
- * Catalog screen for a single source: shows popular manga initially,
- * supports pagination and searching within the source.
+ * Catalog screen for a single source, navegable como el catálogo de Kotatsu:
+ * orden (Populares / Recientes / Nuevos / Alfabético...) y filtro por etiquetas.
+ * Soporta paginación y búsqueda dentro de la fuente (solo con Enter).
  */
 class CatalogActivity : AppCompatActivity() {
 
@@ -40,6 +45,14 @@ class CatalogActivity : AppCompatActivity() {
     private var hasNext = true
     private var query = ""
     private var loadJob: Job? = null
+
+    /** Orden de catálogo seleccionado (Populares por defecto). */
+    private var sortOrders: List<SortOrder> = emptyList()
+    private var currentOrder: SortOrder = SortOrder.POPULARITY
+
+    /** Etiquetas disponibles y seleccionadas para el filtro. */
+    private var availableTags: List<MangaTag> = emptyList()
+    private var selectedTags: Set<MangaTag> = emptySet()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -98,12 +111,95 @@ class CatalogActivity : AppCompatActivity() {
             }
         })
 
-        reload()
+        binding.btnFilters.setOnClickListener { showTagFilter() }
+
+        loadCatalogOptions()
     }
 
     private fun hideKeyboard() {
         val imm = getSystemService(InputMethodManager::class.java)
         imm?.hideSoftInputFromWindow(binding.searchBox.windowToken, 0)
+    }
+
+    /** Carga las ordenaciones y etiquetas de la fuente, configura la UI y arranca. */
+    private fun loadCatalogOptions() {
+        lifecycleScope.launch {
+            val orders = runCatching { OnlineRepository.getSortOrders(sourceId) }
+                .getOrDefault(emptyList())
+
+            if (orders.isEmpty()) {
+                // Fuente sin soporte Kotatsu (p. ej. extensión clásica): ocultar la
+                // barra de catálogo y cargar populares directamente.
+                binding.catalogBar.visibility = View.GONE
+                reload()
+                return@launch
+            }
+
+            sortOrders = orders
+            currentOrder = orders.firstOrNull { it == SortOrder.POPULARITY }
+                ?: orders.first()
+            setupSortSpinner()
+
+            availableTags = runCatching { OnlineRepository.getCatalogTags(sourceId) }
+                .getOrDefault(emptyList())
+            binding.btnFilters.visibility = if (availableTags.isEmpty()) View.GONE else View.VISIBLE
+
+            reload()
+        }
+    }
+
+    /** Rellena el Spinner de orden con nombres legibles y recarga al cambiar. */
+    private fun setupSortSpinner() {
+        val labels = sortOrders.map { sortOrderLabel(it) }
+        val spinnerAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, labels)
+        spinnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        binding.sortSpinner.adapter = spinnerAdapter
+        binding.sortSpinner.setSelection(sortOrders.indexOf(currentOrder).coerceAtLeast(0))
+        binding.sortSpinner.setOnItemSelectedListener(object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(
+                parent: android.widget.AdapterView<*>?,
+                view: View?,
+                position: Int,
+                id: Long,
+            ) {
+                val newOrder = sortOrders.getOrNull(position) ?: return
+                if (newOrder != currentOrder) {
+                    currentOrder = newOrder
+                    query = ""
+                    binding.searchBox.text.clear()
+                    reload()
+                }
+            }
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+        })
+    }
+
+    /** Diálogo de etiquetas (multi-selección), como el filtro del catálogo Kotatsu. */
+    private fun showTagFilter() {
+        if (availableTags.isEmpty()) {
+            Toast.makeText(this, "Esta fuente no tiene etiquetas", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val titles = availableTags.map { it.title }.toTypedArray()
+        val checked = BooleanArray(availableTags.size) { i ->
+            selectedTags.contains(availableTags[i])
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Filtrar por etiquetas")
+            .setMultiChoiceItems(titles, checked) { _, which, isChecked ->
+                checked[which] = isChecked
+            }
+            .setPositiveButton("Aplicar") { _, _ ->
+                selectedTags = availableTags.filterIndexed { i, _ -> checked[i] }.toSet()
+                reload()
+            }
+            .setNeutralButton("Limpiar") { _, _ ->
+                selectedTags = emptySet()
+                reload()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
     }
 
     private fun reload() {
@@ -125,11 +221,13 @@ class CatalogActivity : AppCompatActivity() {
         binding.emptyText.visibility = View.GONE
 
         loadJob = lifecycleScope.launch {
-            val result = if (query.isEmpty()) {
-                OnlineRepository.getPopular(sourceId, page)
-            } else {
-                OnlineRepository.getSearch(sourceId, query, page)
-            }
+            val result = OnlineRepository.getCatalog(
+                sourceId = sourceId,
+                page = page,
+                order = currentOrder,
+                query = query,
+                tags = selectedTags,
+            )
 
             result.onSuccess { (mangas, hasNextPage) ->
                 currentPage = page
@@ -144,6 +242,26 @@ class CatalogActivity : AppCompatActivity() {
 
             isLoading = false
             binding.progressBar.visibility = View.GONE
+        }
+    }
+
+    /** Nombre legible del orden de catálogo (como Kotatsu). */
+    private fun sortOrderLabel(order: SortOrder): String {
+        return when (order) {
+            SortOrder.POPULARITY -> "Populares"
+            SortOrder.POPULARITY_HOUR -> "Populares (hora)"
+            SortOrder.POPULARITY_TODAY -> "Populares (hoy)"
+            SortOrder.POPULARITY_WEEK -> "Populares (semana)"
+            SortOrder.POPULARITY_MONTH -> "Populares (mes)"
+            SortOrder.POPULARITY_YEAR -> "Populares (año)"
+            SortOrder.UPDATED -> "Recientes"
+            SortOrder.NEWEST -> "Nuevos"
+            SortOrder.ALPHABETICAL -> "Alfabético"
+            SortOrder.ALPHABETICAL_DESC -> "Alfabético (Z-A)"
+            SortOrder.RATING -> "Valoración"
+            SortOrder.ADDED -> "Añadidos"
+            SortOrder.RELEVANCE -> "Relevancia"
+            else -> order.name
         }
     }
 

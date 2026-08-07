@@ -134,17 +134,6 @@
             android:textColor="@color/text_secondary"
             android:textSize="13sp" />
 
-        <TextView
-            android:id="@+id/tabRecent"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:padding="10dp"
-            android:text="Recientes"
-            android:textColor="@color/text_secondary"
-            android:textSize="13sp" />
-
     </LinearLayout>
 
     <FrameLayout

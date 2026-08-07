@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.widget.ImageView
 import eu.kanade.tachiyomi.network.NetworkHelper
+import net.spin.tachiyomi.legacy.kotatsu.KotatsuLoaderContext
+import okhttp3.Request
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -11,6 +13,10 @@ import java.util.concurrent.Executors
 /**
  * Minimal image loader with an in-memory cache. Downloads happen on a
  * small fixed thread pool; callers must tolerate null results.
+ *
+ * Envia siempre el User-Agent de Kotatsu y un Referer del propio dominio de
+ * la imagen: muchos CDNs/Cloudflare rechazan peticiones sin esos headers
+ * (el sintoma es "la portada no carga" aunque el manga si).
  */
 object ImageLoader {
 
@@ -22,6 +28,28 @@ object ImageLoader {
 
     fun init(network: NetworkHelper) {
         this.network = network
+    }
+
+    private fun request(url: String): Request {
+        val builder = Request.Builder().url(url)
+            .header("User-Agent", KotatsuLoaderContext.DEFAULT_USER_AGENT)
+        runCatching {
+            val host = java.net.URI(url).host
+            if (!host.isNullOrBlank()) builder.header("Referer", "https://$host/")
+        }
+        return builder.build()
+    }
+
+    private fun fetch(url: String): Bitmap? = try {
+        network?.let { net ->
+            val response = net.client.newCall(request(url)).execute()
+            response.use { resp ->
+                if (!resp.isSuccessful) null
+                else BitmapFactory.decodeStream(resp.body.byteStream())
+            }
+        }
+    } catch (_: Exception) {
+        null
     }
 
     fun load(url: String?, imageView: ImageView, placeholder: Int = 0) {
@@ -44,17 +72,7 @@ object ImageLoader {
         if (waiters.size > 1) return
 
         executor.execute {
-            val bitmap = try {
-                network?.let { net ->
-                    val response = net.client.newCall(eu.kanade.tachiyomi.network.GET(url)).execute()
-                    response.use { resp ->
-                        if (!resp.isSuccessful) null
-                        else BitmapFactory.decodeStream(resp.body.byteStream())
-                    }
-                }
-            } catch (_: Exception) {
-                null
-            }
+            val bitmap = fetch(url)
 
             if (bitmap != null) cache[url] = bitmap
 
@@ -85,17 +103,7 @@ object ImageLoader {
         }
 
         executor.execute {
-            val bitmap = try {
-                network?.let { net ->
-                    val response = net.client.newCall(eu.kanade.tachiyomi.network.GET(url)).execute()
-                    response.use { resp ->
-                        if (!resp.isSuccessful) null
-                        else BitmapFactory.decodeStream(resp.body.byteStream())
-                    }
-                }
-            } catch (_: Exception) {
-                null
-            }
+            val bitmap = fetch(url)
 
             if (bitmap != null) cache[url] = bitmap
 

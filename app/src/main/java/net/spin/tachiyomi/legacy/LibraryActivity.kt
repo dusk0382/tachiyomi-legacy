@@ -159,7 +159,6 @@ class LibraryActivity : AppCompatActivity() {
         binding.tabLocal.setOnClickListener { switchTab(TAB_LOCAL) }
         binding.tabFavorites.setOnClickListener { switchTab(TAB_FAVORITES) }
         binding.tabHistory.setOnClickListener { switchTab(TAB_HISTORY) }
-        binding.tabRecent.setOnClickListener { switchTab(TAB_RECENT) }
         updateTabStyles()
     }
 
@@ -185,10 +184,6 @@ class LibraryActivity : AppCompatActivity() {
             ContextCompat.getColor(this, if (currentTab == TAB_HISTORY) R.color.text_primary else R.color.text_secondary)
         )
         binding.tabHistory.setTypeface(null, if (currentTab == TAB_HISTORY) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-        binding.tabRecent.setTextColor(
-            ContextCompat.getColor(this, if (currentTab == TAB_RECENT) R.color.text_primary else R.color.text_secondary)
-        )
-        binding.tabRecent.setTypeface(null, if (currentTab == TAB_RECENT) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
     }
 
     private fun loadTab() {
@@ -205,104 +200,6 @@ class LibraryActivity : AppCompatActivity() {
                 val history = (application as App).libraryRepository.getHistory()
                 allMangas = emptyList()
                 renderOnlineItems(history.map { it.toOnlineItem() })
-            }
-            TAB_RECENT -> renderRecent()
-        }
-    }
-
-    /**
-     * Recientes (como Kotatsu): favoritos + historial unidos y ordenados por el
-     * último capítulo conocido en la BD (fecha de subida), con badge "Nuevo" si
-     * hay capítulos sin leer desde la última lectura.
-     */
-    private fun renderRecent() {
-        adapter.clear()
-        allMangas = emptyList()
-        binding.progressBar.visibility = View.VISIBLE
-
-        val repo = (application as App).libraryRepository
-        executor.execute {
-            val favorites = repo.getFavorites()
-            val history = repo.getHistory()
-
-            // Unir por (sourceId, url), priorizando el historial (tiene progreso).
-            val byKey = LinkedHashMap<String, LibraryItem.Online>()
-            favorites.forEach { f ->
-                byKey[f.key] = LibraryItem.Online(
-                    sourceId = f.sourceId,
-                    url = f.url,
-                    title = f.title,
-                    thumbnailUrl = f.thumbnailUrl,
-                    subtitle = "Favorito",
-                )
-            }
-            history.forEach { h ->
-                val prev = byKey[h.key]
-                byKey[h.key] = LibraryItem.Online(
-                    sourceId = h.sourceId,
-                    url = h.url,
-                    title = h.title,
-                    thumbnailUrl = h.thumbnailUrl,
-                    subtitle = prev?.subtitle ?: "Historial",
-                    readPercent = if (h.lastTotalPages > 0) {
-                        (h.lastPageIndex.toFloat() / h.lastTotalPages).coerceIn(0f, 1f)
-                    } else {
-                        0f
-                    },
-                    isHistory = true,
-                    lastChapterUrl = h.lastChapterUrl,
-                    lastChapterName = h.lastChapterName,
-                    lastPageIndex = h.lastPageIndex,
-                )
-            }
-
-            // Para cada manga, el último capítulo conocido (BD) y si hay novedades.
-            // Se calcula UNA sola vez por manga (no en cada paso).
-            data class Entry(val item: LibraryItem.Online, val latestDate: Long)
-
-            val entries = byKey.values.map { item ->
-                val latest = repo.getChapters(item.sourceId, item.url)
-                    .maxByOrNull { it.uploadDate }
-                val isNew = latest != null &&
-                    latest.url != item.lastChapterUrl &&
-                    latest.uploadDate > 0L
-
-                val whenStr = if (latest != null && latest.uploadDate > 0L) {
-                    formatRelativeDate(latest.uploadDate)
-                } else {
-                    null
-                }
-
-                val label = buildString {
-                    if (isNew) append("● Nuevo · ")
-                    item.lastChapterName?.takeIf { it.isNotBlank() }?.let {
-                        append("Último leído: $it")
-                    }
-                    if (whenStr != null) {
-                        if (isNotEmpty()) append(" · ")
-                        append("Cap. reciente: $whenStr")
-                    }
-                }
-
-                Entry(
-                    item = item.copy(
-                        subtitle = label.ifBlank { item.subtitle },
-                        isHistory = true,
-                    ),
-                    latestDate = latest?.uploadDate ?: 0L,
-                )
-            }.sortedByDescending { it.latestDate }.map { it.item }
-
-            runOnUiThread {
-                if (!isDestroyed) {
-                    binding.progressBar.visibility = View.GONE
-                    renderOnlineItems(entries)
-                    binding.emptyText.visibility = if (entries.isEmpty()) View.VISIBLE else View.GONE
-                    if (entries.isEmpty()) {
-                        binding.emptyText.text =
-                            "Aún no hay nada reciente.\nLos mangas que leas o marques como favorito aparecerán aquí."
-                    }
-                }
             }
         }
     }
@@ -331,12 +228,11 @@ class LibraryActivity : AppCompatActivity() {
     }
 
     private fun refreshLibrary() {
-        if (currentTab == TAB_FAVORITES || currentTab == TAB_HISTORY || currentTab == TAB_RECENT) {
+        if (currentTab == TAB_FAVORITES || currentTab == TAB_HISTORY) {
             loadTab()
             val msg = when (currentTab) {
                 TAB_FAVORITES -> "Favoritos actualizados"
-                TAB_HISTORY -> "Historial actualizado"
-                else -> "Recientes actualizados"
+                else -> "Historial actualizado"
             }
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
             return
@@ -708,13 +604,18 @@ class LibraryActivity : AppCompatActivity() {
             }
 
             currentTab == TAB_HISTORY -> {
-                // Del historial: mover a carpeta privada o eliminar del historial.
+                // Del historial: mover a carpeta privada (solo con SecureAddActivate
+                // activo) o eliminar del historial.
+                val options = mutableListOf<String>()
+                if (isMoveToPrivateEnabled) options.add("🔒 Mover a carpeta privada")
+                options.add("Eliminar del historial")
                 AlertDialog.Builder(this)
                     .setTitle(item.title)
-                    .setItems(arrayOf("🔒 Mover a carpeta privada", "Eliminar del historial")) { _, which ->
-                        when (which) {
-                            0 -> moveOnlineToPrivate(item)
-                            1 -> {
+                    .setItems(options.toTypedArray()) { _, which ->
+                        val selected = options[which]
+                        when (selected) {
+                            "🔒 Mover a carpeta privada" -> moveOnlineToPrivate(item)
+                            else -> {
                                 (application as App).libraryRepository
                                     .removeHistory(item.sourceId, item.url)
                                 loadTab()
@@ -726,12 +627,17 @@ class LibraryActivity : AppCompatActivity() {
             }
 
             else -> {
+                // Favoritos: mover a carpeta privada solo si SecureAddActivate está activo.
+                val options = mutableListOf<String>()
+                if (isMoveToPrivateEnabled) options.add("🔒 Mover a carpeta privada")
+                options.add("Quitar de favoritos")
                 AlertDialog.Builder(this)
                     .setTitle(item.title)
-                    .setItems(arrayOf("🔒 Mover a carpeta privada", "Quitar de favoritos")) { _, which ->
-                        when (which) {
-                            0 -> moveOnlineToPrivate(item)
-                            1 -> {
+                    .setItems(options.toTypedArray()) { _, which ->
+                        val selected = options[which]
+                        when (selected) {
+                            "🔒 Mover a carpeta privada" -> moveOnlineToPrivate(item)
+                            else -> {
                                 (application as App).libraryRepository
                                     .removeFavorite(item.sourceId, item.url)
                                 loadTab()
@@ -1104,7 +1010,7 @@ class LibraryActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         // Al volver de un manga (favorito añadido, lectura) refrescar la pestaña.
-        if (currentTab == TAB_FAVORITES || currentTab == TAB_HISTORY || currentTab == TAB_RECENT) {
+        if (currentTab == TAB_FAVORITES || currentTab == TAB_HISTORY) {
             loadTab()
         }
     }
@@ -1315,6 +1221,5 @@ class LibraryActivity : AppCompatActivity() {
         const val TAB_LOCAL = 0
         const val TAB_FAVORITES = 1
         const val TAB_HISTORY = 2
-        const val TAB_RECENT = 3
     }
 }

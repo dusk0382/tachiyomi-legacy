@@ -62,6 +62,29 @@ object KotatsuSourceManager {
         "WEEBDEX_EN", "ZANDYNOFANSUB", "ZIN_MANGA_COM",
     )
 
+    /**
+     * Fuentes NSFW caídas o rotas (verificadas con el health check JVM: 404
+     * estables, DNS muerto, Cloudflare 403/521, cert inválido, timeouts).
+     * Solo quedan habilitadas las que pasan el flujo completo (catálogo ->
+     * portada -> capítulos -> imagen).
+     */
+    private val excludedNsfw = setOf(
+        // --- Español + multiidioma (locale all): caídas ---
+        "DOUJINSHELL", "DOUJIN_HENTAI_NET", "ERO18X", "HENTAIREADER", "MANGACRAZY",
+        "MANGALAND", "MANGAXICO", "MANHWARAW", "MANHWAS_ES", "MANYTOON_CLUB",
+        "PZYKOSIS666HFANSUB", "SEINAGIADULTO", "TOPCOMICPORNO", "TRADUCCIONESMOONLIGHT",
+        "TUMANHWAS", "VERCOMICSPORNO", "VERMANGASPORNO", "VERMANHWA",
+        // --- Inglés: caídas ---
+        "ADULT_WEBTOON", "BEEHENTAI", "COMIZ", "DEXHENTAI", "EDOUJIN", "HENTAI3ZCC",
+        "HENTAIMANGA", "HENTAIWEBTOON", "HENTAIXYURI", "HENTAI_4FREE", "HEYTOON",
+        "HIPERDEX", "LILYMANGA", "LUNAR_SCAN", "MADARADEX", "MANGA18X", "MANGADASS",
+        "MANGAHENTAI", "MANHWA18ORG", "MANHWA68", "MANHWAHENTAI", "MANHWAHENTAITO",
+        "MANHWARAW_COM", "MANHWATOON", "MANHWAX", "MANYTOON", "MANYTOONME",
+        "MILFTOON", "NOVELCROW", "OMEGASCANS", "PAWMANGA", "PORNCOMIXONLINE",
+        "SUMMANGA", "TOONGOD", "TOONILY_ME", "TOONITUBE", "TOONIZY", "WEBTOONSCAN",
+        "WEBTOONXYZ", "YAOIHUB", "ZINCHANMANGA",
+    )
+
     private var bridges: List<KotatsuSourceBridge> = emptyList()
 
     /**
@@ -94,6 +117,8 @@ object KotatsuSourceManager {
         .filter { nsfwEnabled || it.contentType !in excludedTypes }
         .filter { it.locale in ENABLED_LOCALES.split(',') }
         .filter { it.name !in excludedNames }
+        // NSFW: solo las que pasan el health check (las caídas quedan fuera).
+        .filter { it.contentType !in excludedTypes || it.name !in excludedNsfw }
         // Blindaje extra: jamás registrar una fuente de portugués (cualquiera que sea su contentType).
         .filter { it.locale != "pt" && !it.locale.startsWith("pt-") }
 

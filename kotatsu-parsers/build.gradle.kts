@@ -48,4 +48,9 @@ tasks.withType<Test>().configureEach {
     }
     // Secuencial: somos amables con los sitios.
     maxParallelForks = 1
+    // Reenviar las propiedades -Dhealth.* al JVM del test (SourceHealthCheck).
+    systemProperty("health.nsfw", System.getProperty("health.nsfw") ?: "false")
+    System.getProperty("health.locale")?.let { systemProperty("health.locale", it) }
+    System.getProperty("health.timeout")?.let { systemProperty("health.timeout", it) }
+    System.getProperty("health.sources")?.let { systemProperty("health.sources", it) }
 }

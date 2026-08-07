@@ -20,6 +20,7 @@ import org.koitharu.kotatsu.parsers.model.MangaListFilter
 import org.koitharu.kotatsu.parsers.model.MangaPage
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.parsers.model.MangaState
+import org.koitharu.kotatsu.parsers.model.MangaTag
 import org.koitharu.kotatsu.parsers.model.SortOrder
 import java.util.concurrent.ConcurrentHashMap
 
@@ -64,12 +65,32 @@ class KotatsuSourceBridge(
     // Mapeo de modelos
     // ---------------------------------------------------------------------
 
+    /**
+     * Limpia el texto que devuelven los parsers (HTML residual, whitespace
+     * múltiple, caracteres basura): sin esto algunas fuentes muestran la
+     * descripción pegada al título o con <br>/<p> crudos.
+     */
+    private fun cleanText(raw: String?): String? {
+        if (raw.isNullOrBlank()) return null
+        var s = raw
+            .replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
+            .replace(Regex("<[^>]+>"), "")
+            .replace("&nbsp;", " ")
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+        s = s.replace(Regex("[ \t]+\n"), "\n").replace(Regex("\n{3,}"), "\n\n")
+        return s.trim().ifBlank { null }
+    }
+
     private fun Manga.toSManga(): SManga = SManga(
         url = url,
-        title = title,
-        author = authors.joinToString(", ").ifBlank { null },
-        description = description,
-        genre = tags.joinToString(", ") { it.title }.ifBlank { null },
+        title = cleanText(title) ?: title,
+        author = cleanText(authors.joinToString(", ")),
+        description = cleanText(description),
+        genre = cleanText(tags.joinToString(", ") { it.title }),
         status = when (state) {
             MangaState.ONGOING -> SManga.ONGOING
             MangaState.FINISHED -> SManga.COMPLETED
@@ -119,6 +140,34 @@ class KotatsuSourceBridge(
     // ---------------------------------------------------------------------
     // API que consume la app
     // ---------------------------------------------------------------------
+
+    /** Ordenaciones de catálogo que soporta esta fuente (Populares, Recientes, Nuevos...). */
+    val availableSortOrders: List<SortOrder>
+        get() = parser.availableSortOrders.toList()
+
+    /** Etiquetas (tags) disponibles para filtrar el catálogo de esta fuente. */
+    suspend fun getFilterTags(): List<MangaTag> =
+        runCatching { parser.getFilterOptions().availableTags.toList() }.getOrDefault(emptyList())
+
+    /**
+     * Página del catálogo con orden + filtro de tags (y opcionalmente búsqueda),
+     * como el navegador de Kotatsu (Populares / Recientes / Nuevos / etiquetas).
+     */
+    suspend fun getCatalogPage(
+        page: Int,
+        order: SortOrder,
+        query: String?,
+        tags: Set<MangaTag>,
+    ): MangasPage = fetchPage(page) { offset ->
+        parser.getList(
+            offset = offset,
+            order = order,
+            filter = MangaListFilter(
+                query = query?.ifBlank { null },
+                tags = tags,
+            ),
+        )
+    }
 
     override suspend fun getPopularManga(page: Int): MangasPage = fetchPage(page) { offset ->
         parser.getList(offset = offset, order = SortOrder.POPULARITY, filter = MangaListFilter.EMPTY)
