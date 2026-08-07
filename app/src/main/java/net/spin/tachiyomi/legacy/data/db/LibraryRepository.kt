@@ -3,6 +3,7 @@ package net.spin.tachiyomi.legacy.data.db
 import android.content.Context
 import android.database.Cursor
 import net.spin.tachiyomi.legacy.data.model.ChapterRef
+import net.spin.tachiyomi.legacy.data.model.HistoryRef
 import net.spin.tachiyomi.legacy.data.model.MangaRef
 import net.spin.tachiyomi.legacy.data.model.ProgressRef
 import net.spin.tachiyomi.legacy.data.model.SourceRef
@@ -156,6 +157,118 @@ class LibraryRepository(context: Context) {
             "${ChaptersTable.KEY_SOURCE_ID}=? AND ${ChaptersTable.KEY_MANGA_URL}=? AND ${ChaptersTable.KEY_URL}=?",
             arrayOf(sourceId.toString(), mangaUrl, chapterUrl),
         )
+    }
+
+    // --- History ---
+
+    /** Guarda (o actualiza la fecha) de un manga online visto recientemente. */
+    fun upsertHistory(history: HistoryRef) {
+        val values = HistoryTable.toContentValues(
+            history.sourceId,
+            history.url,
+            history.title,
+            history.thumbnailUrl,
+            history.lastChapterUrl,
+            history.lastChapterName,
+            history.lastPageIndex,
+            history.lastTotalPages,
+        )
+        db.writableDatabase.insertWithOnConflict(
+            AppDatabase.TBL_HISTORY,
+            null,
+            values,
+            android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE,
+        )
+    }
+
+    fun getHistoryEntry(sourceId: Long, url: String): HistoryRef? {
+        return db.readableDatabase.query(
+            AppDatabase.TBL_HISTORY,
+            null,
+            "${HistoryTable.KEY_SOURCE_ID}=? AND ${HistoryTable.KEY_URL}=?",
+            arrayOf(sourceId.toString(), url),
+            null,
+            null,
+            null,
+        ).use { cursor ->
+            if (cursor.moveToFirst()) {
+                HistoryRef(
+                    sourceId = cursor.getLong(cursor.getColumnIndexOrThrow(HistoryTable.KEY_SOURCE_ID)),
+                    url = cursor.getString(cursor.getColumnIndexOrThrow(HistoryTable.KEY_URL)),
+                    title = cursor.getString(cursor.getColumnIndexOrThrow(HistoryTable.KEY_TITLE)),
+                    thumbnailUrl = cursor.getStringOrNull(HistoryTable.KEY_THUMBNAIL_URL),
+                    lastReadAt = cursor.getLong(cursor.getColumnIndexOrThrow(HistoryTable.KEY_LAST_READ_AT)),
+                    lastChapterUrl = cursor.getStringOrNull(HistoryTable.KEY_LAST_CHAPTER_URL),
+                    lastChapterName = cursor.getStringOrNull(HistoryTable.KEY_LAST_CHAPTER_NAME),
+                    lastPageIndex = cursor.getLongOrNull(HistoryTable.KEY_LAST_PAGE_INDEX)?.toInt() ?: 0,
+                    lastTotalPages = cursor.getLongOrNull(HistoryTable.KEY_LAST_TOTAL_PAGES)?.toInt() ?: 0,
+                )
+            } else {
+                null
+            }
+        }
+    }
+
+    /**
+     * Actualiza el progreso del ultimo capitulo leido del manga en el historial
+     * (sin tocar title/thumbnail de la fila existente). No hace nada si el manga
+     * no esta en el historial.
+     */
+    fun updateHistoryProgress(
+        sourceId: Long,
+        mangaUrl: String,
+        chapterUrl: String,
+        chapterName: String?,
+        pageIndex: Int,
+        totalPages: Int,
+    ) {
+        val values = android.content.ContentValues().apply {
+            put(HistoryTable.KEY_LAST_READ_AT, System.currentTimeMillis())
+            put(HistoryTable.KEY_LAST_CHAPTER_URL, chapterUrl)
+            chapterName?.let { put(HistoryTable.KEY_LAST_CHAPTER_NAME, it) }
+            put(HistoryTable.KEY_LAST_PAGE_INDEX, pageIndex)
+            put(HistoryTable.KEY_LAST_TOTAL_PAGES, totalPages)
+        }
+        db.writableDatabase.update(
+            AppDatabase.TBL_HISTORY,
+            values,
+            "${HistoryTable.KEY_SOURCE_ID}=? AND ${HistoryTable.KEY_URL}=?",
+            arrayOf(sourceId.toString(), mangaUrl),
+        )
+    }
+
+    fun getHistory(): List<HistoryRef> {
+        return db.readableDatabase.query(
+            AppDatabase.TBL_HISTORY,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "${HistoryTable.KEY_LAST_READ_AT} DESC",
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(
+                        HistoryRef(
+                            sourceId = cursor.getLong(cursor.getColumnIndexOrThrow(HistoryTable.KEY_SOURCE_ID)),
+                            url = cursor.getString(cursor.getColumnIndexOrThrow(HistoryTable.KEY_URL)),
+                            title = cursor.getString(cursor.getColumnIndexOrThrow(HistoryTable.KEY_TITLE)),
+                            thumbnailUrl = cursor.getStringOrNull(HistoryTable.KEY_THUMBNAIL_URL),
+                            lastReadAt = cursor.getLong(cursor.getColumnIndexOrThrow(HistoryTable.KEY_LAST_READ_AT)),
+                            lastChapterUrl = cursor.getStringOrNull(HistoryTable.KEY_LAST_CHAPTER_URL),
+                            lastChapterName = cursor.getStringOrNull(HistoryTable.KEY_LAST_CHAPTER_NAME),
+                            lastPageIndex = cursor.getLongOrNull(HistoryTable.KEY_LAST_PAGE_INDEX)?.toInt() ?: 0,
+                            lastTotalPages = cursor.getLongOrNull(HistoryTable.KEY_LAST_TOTAL_PAGES)?.toInt() ?: 0,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    fun clearHistory() {
+        db.writableDatabase.delete(AppDatabase.TBL_HISTORY, null, null)
     }
 
     // --- Progress ---

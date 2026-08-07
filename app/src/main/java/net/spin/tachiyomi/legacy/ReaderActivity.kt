@@ -19,6 +19,8 @@ class ReaderActivity : AppCompatActivity(), ZoomableImageView.OnTapListener {
         const val EXTRA_SOURCE_ID = "source_id"
         const val EXTRA_CHAPTER_URL = "chapter_url"
         const val EXTRA_CHAPTER_NAME = "chapter_name"
+        const val EXTRA_MANGA_URL = "manga_url"
+        const val EXTRA_MANGA_TITLE = "manga_title"
     }
 
     private lateinit var binding: ActivityReaderBinding
@@ -177,6 +179,7 @@ class ReaderActivity : AppCompatActivity(), ZoomableImageView.OnTapListener {
     override fun onPause() {
         if (::viewModel.isInitialized) {
             viewModel.saveProgress()
+            updateHistoryProgress()
         }
         super.onPause()
     }
@@ -185,7 +188,31 @@ class ReaderActivity : AppCompatActivity(), ZoomableImageView.OnTapListener {
     override fun onBackPressed() {
         if (::viewModel.isInitialized) {
             viewModel.saveProgress()
+            updateHistoryProgress()
         }
         super.onBackPressed()
+    }
+
+    /** Registra el progreso del ultimo capitulo leido en el historial online. */
+    private fun updateHistoryProgress() {
+        val sourceId = intent.getLongExtra(EXTRA_SOURCE_ID, -1L)
+        val chapterUrl = intent.getStringExtra(EXTRA_CHAPTER_URL)
+        val mangaUrl = intent.getStringExtra(EXTRA_MANGA_URL)
+        if (sourceId <= 0 || chapterUrl.isNullOrBlank() || mangaUrl.isNullOrBlank()) return
+
+        // No escribir progreso basura si el lector aun no termino de inicializar.
+        if (viewModel.isReady.value != true) return
+        val page = viewModel.currentPage.value ?: return
+        val total = viewModel.pageCount.value ?: 0
+        if (total <= 0) return
+
+        (application as App).libraryRepository.updateHistoryProgress(
+            sourceId = sourceId,
+            mangaUrl = mangaUrl,
+            chapterUrl = chapterUrl,
+            chapterName = intent.getStringExtra(EXTRA_CHAPTER_NAME),
+            pageIndex = page,
+            totalPages = total,
+        )
     }
 }

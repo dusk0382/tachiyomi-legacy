@@ -1,7 +1,9 @@
 package net.spin.tachiyomi.legacy
 
 import android.content.Context
+import android.os.Build
 import android.os.Environment
+import android.os.storage.StorageManager
 import androidx.core.content.ContextCompat
 import java.io.File
 
@@ -14,6 +16,12 @@ object MangaScanner {
         roots.add(Environment.getExternalStorageDirectory())
         roots.add(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS))
         roots.add(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS))
+
+        // Volumenes de almacenamiento del sistema (incluye la tarjeta SD externa).
+        roots.addAll(storageVolumeRoots(context))
+
+        // Rutas clasicas de montaje de la SD externa.
+        roots.addAll(sdCardMountRoots())
 
         val externalDirs = ContextCompat.getExternalFilesDirs(context, null)
 
@@ -41,11 +49,79 @@ object MangaScanner {
             }
         }
 
-        for (root in roots.distinct()) {
+        for (root in roots.distinct().filter { it.exists() && it.canRead() }) {
             scanDir(root, results, depth = 0, maxDepth = 3)
         }
 
         return results.toList()
+    }
+
+    /**
+     * Descubre los volumenes de almacenamiento montados (interno y SD externa)
+     * usando StorageManager. Funciona en Android 6 (getVolumeList, deprecated)
+     * y en versiones nuevas (getStorageVolumes).
+     */
+    private fun storageVolumeRoots(context: Context): List<File> {
+        val roots = mutableListOf<File>()
+        val sm = context.getSystemService(Context.STORAGE_SERVICE) as? StorageManager ?: return roots
+
+        try {
+            val volumes = try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    // API 24+: StorageManager.getStorageVolumes()
+                    sm.javaClass.getMethod("getStorageVolumes").invoke(sm) as? Array<*>
+                } else {
+                    // API 23 (Android 6): StorageManager.getVolumeList()
+                    sm.javaClass.getMethod("getVolumeList").invoke(sm) as? Array<*>
+                }
+            } catch (_: Exception) {
+                null
+            }
+
+            for (volume in volumes.orEmpty()) {
+                val vol = volume ?: continue
+                try {
+                    // StorageVolume.getDirectory() (API 30+) / getPathFile() (API 24-29)
+                    // / getPath() (API 23, deprecated). Lo obtenemos por reflexion
+                    // para cubrir todas las versiones sin romper la compilacion.
+                    val file = try {
+                        vol.javaClass.getMethod("getDirectory").invoke(vol) as? File
+                    } catch (_: Exception) {
+                        null
+                    } ?: try {
+                        vol.javaClass.getMethod("getPathFile").invoke(vol) as? File
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (file != null) {
+                        roots.add(file)
+                    } else {
+                        val path = vol.javaClass.getMethod("getPath").invoke(vol) as? String
+                        if (!path.isNullOrBlank()) roots.add(File(path))
+                    }
+                } catch (_: Exception) {
+                }
+            }
+        } catch (_: Exception) {
+        }
+
+        return roots
+    }
+
+    /** Rutas clasicas donde Android monta la SD externa. */
+    private fun sdCardMountRoots(): List<File> {
+        val roots = mutableListOf<File>()
+        for (base in listOf("/storage", "/mnt")) {
+            val dir = File(base)
+            val children = dir.listFiles() ?: continue
+            for (child in children) {
+                if (!child.isDirectory) continue
+                val name = child.name.lowercase()
+                if (name.startsWith(".") || name == "emulated" || name == "self") continue
+                roots.add(child)
+            }
+        }
+        return roots
     }
 
     private fun scanDir(

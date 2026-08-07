@@ -43,6 +43,20 @@ data class ProgressRef(
     val updatedAt: Long = System.currentTimeMillis(),
 )
 
+data class HistoryRef(
+    val sourceId: Long,
+    val url: String,
+    val title: String,
+    val thumbnailUrl: String? = null,
+    val lastReadAt: Long = System.currentTimeMillis(),
+    val lastChapterUrl: String? = null,
+    val lastChapterName: String? = null,
+    val lastPageIndex: Int = 0,
+    val lastTotalPages: Int = 0,
+) {
+    val key: String get() = "$sourceId:$url"
+}
+
 data class SourceRef(
     val id: Long,
     val name: String,

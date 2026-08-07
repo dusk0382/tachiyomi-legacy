@@ -27,7 +27,10 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import eu.kanade.tachiyomi.source.SourceManager
 import net.spin.tachiyomi.legacy.databinding.ActivityLibraryBinding
+import net.spin.tachiyomi.legacy.util.ImageLoader
+import net.spin.tachiyomi.legacy.util.TimeUtil
 import java.io.File
 import java.util.concurrent.Executors
 
@@ -47,6 +50,8 @@ class LibraryActivity : AppCompatActivity() {
     private var isSearchVisible = false
     private var isPrivateMode = false
     private var isMoveToPrivateEnabled = false
+
+    private var currentTab = TAB_LOCAL
 
     private var pendingPrivateKey: String? = null
     private var pendingOriginalFile: File? = null
@@ -127,8 +132,8 @@ class LibraryActivity : AppCompatActivity() {
         PrivateLibraryManager.init(applicationContext)
 
         adapter = MangaAdapter(
-            onClick = ::openReader,
-            onLongClick = ::onMangaLongClick
+            onClick = ::onItemClick,
+            onLongClick = ::onItemLongClick
         )
 
         binding.recycler.layoutManager = GridLayoutManager(this, 3)
@@ -138,6 +143,7 @@ class LibraryActivity : AppCompatActivity() {
         setupSearchToggle()
         setupSort()
         setupRefreshButton()
+        setupTabs()
 
         BottomNavHelper.setup(this, binding.bottomNav.root, BottomNavHelper.TAB_LIBRARY)
 
@@ -147,6 +153,72 @@ class LibraryActivity : AppCompatActivity() {
         checkPermissionAndLoad()
     }
 
+    private fun setupTabs() {
+        binding.tabLocal.setOnClickListener { switchTab(TAB_LOCAL) }
+        binding.tabFavorites.setOnClickListener { switchTab(TAB_FAVORITES) }
+        binding.tabHistory.setOnClickListener { switchTab(TAB_HISTORY) }
+        updateTabStyles()
+    }
+
+    private fun switchTab(tab: Int) {
+        if (currentTab == tab) return
+        currentTab = tab
+        isPrivateMode = false
+        isMoveToPrivateEnabled = false
+        updateTabStyles()
+        loadTab()
+    }
+
+    private fun updateTabStyles() {
+        binding.tabLocal.setTextColor(
+            ContextCompat.getColor(this, if (currentTab == TAB_LOCAL) R.color.text_primary else R.color.text_secondary)
+        )
+        binding.tabLocal.setTypeface(null, if (currentTab == TAB_LOCAL) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+        binding.tabFavorites.setTextColor(
+            ContextCompat.getColor(this, if (currentTab == TAB_FAVORITES) R.color.text_primary else R.color.text_secondary)
+        )
+        binding.tabFavorites.setTypeface(null, if (currentTab == TAB_FAVORITES) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+        binding.tabHistory.setTextColor(
+            ContextCompat.getColor(this, if (currentTab == TAB_HISTORY) R.color.text_primary else R.color.text_secondary)
+        )
+        binding.tabHistory.setTypeface(null, if (currentTab == TAB_HISTORY) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+    }
+
+    private fun loadTab() {
+        when (currentTab) {
+            TAB_LOCAL -> loadLibrary()
+            TAB_FAVORITES -> {
+                adapter.clear()
+                val favorites = (application as App).libraryRepository.getFavorites()
+                allMangas = emptyList()
+                renderOnlineItems(favorites.map { it.toOnlineItem() })
+            }
+            TAB_HISTORY -> {
+                adapter.clear()
+                val history = (application as App).libraryRepository.getHistory()
+                allMangas = emptyList()
+                renderOnlineItems(history.map { it.toOnlineItem() })
+            }
+        }
+    }
+
+    private fun renderOnlineItems(items: List<LibraryItem.Online>) {
+        binding.progressBar.visibility = View.GONE
+        val filtered = if (currentQuery.isBlank()) {
+            items
+        } else {
+            val q = currentQuery.lowercase()
+            items.filter { it.title.lowercase().contains(q) }
+        }
+        adapter.submit(filtered)
+        binding.emptyText.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
+        binding.emptyText.text = if (items.isEmpty()) {
+            if (currentTab == TAB_FAVORITES) "Aún no hay favoritos.\nAbre un manga y toca la estrella." else "Sin historial todavía."
+        } else {
+            getString(R.string.no_results, currentQuery)
+        }
+    }
+
     private fun setupRefreshButton() {
         binding.btnRefresh.setOnClickListener {
             refreshLibrary()
@@ -154,6 +226,16 @@ class LibraryActivity : AppCompatActivity() {
     }
 
     private fun refreshLibrary() {
+        if (currentTab == TAB_FAVORITES || currentTab == TAB_HISTORY) {
+            loadTab()
+            Toast.makeText(
+                this,
+                if (currentTab == TAB_FAVORITES) "Favoritos actualizados" else "Historial actualizado",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
         if (isPrivateMode) {
             privateMangas = PrivateLibraryManager.getPrivateMangas()
             applyFilters()
@@ -387,6 +469,11 @@ class LibraryActivity : AppCompatActivity() {
     }
 
     private fun applyFilters() {
+        if (currentTab != TAB_LOCAL) {
+            loadTab()
+            return
+        }
+
         val sourceList = if (isPrivateMode) privateMangas else allMangas
 
         var list = sourceList
@@ -408,7 +495,7 @@ class LibraryActivity : AppCompatActivity() {
             else -> list
         }
 
-        adapter.submit(list)
+        adapter.submit(list.map { LibraryItem.Local(it) })
 
         if (list.isEmpty() && sourceList.isNotEmpty()) {
             binding.emptyText.visibility = View.VISIBLE
@@ -419,6 +506,30 @@ class LibraryActivity : AppCompatActivity() {
         } else {
             binding.emptyText.visibility = View.GONE
         }
+    }
+
+    private fun onItemClick(item: LibraryItem) {
+        when (item) {
+            is LibraryItem.Local -> openReader(item.manga)
+            is LibraryItem.Online -> openOnlineManga(item)
+        }
+    }
+
+    private fun onItemLongClick(item: LibraryItem): Boolean {
+        if (item is LibraryItem.Local) {
+            onMangaLongClick(item.manga)
+        }
+        return true
+    }
+
+    private fun openOnlineManga(item: LibraryItem.Online) {
+        val intent = Intent(this, MangaDetailActivity::class.java).apply {
+            putExtra("source_id", item.sourceId)
+            putExtra("manga_url", item.url)
+            putExtra("manga_title", item.title)
+            item.thumbnailUrl?.let { putExtra("manga_thumb", it) }
+        }
+        startActivity(intent)
     }
 
     private fun onMangaLongClick(manga: MangaFile) {
@@ -613,6 +724,10 @@ class LibraryActivity : AppCompatActivity() {
     }
 
     private fun loadLibrary() {
+        if (currentTab != TAB_LOCAL) {
+            loadTab()
+            return
+        }
         if (isPrivateMode) return
 
         val cached = LibraryCache.loadLibrary()
@@ -705,6 +820,14 @@ class LibraryActivity : AppCompatActivity() {
         startActivity(intent)
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Al volver de un manga (favorito añadido, lectura) refrescar la pestaña.
+        if (currentTab == TAB_FAVORITES || currentTab == TAB_HISTORY) {
+            loadTab()
+        }
+    }
+
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         if (isPrivateMode) {
@@ -719,15 +842,61 @@ class LibraryActivity : AppCompatActivity() {
         executor.shutdownNow()
     }
 
+    private fun net.spin.tachiyomi.legacy.data.model.MangaRef.toOnlineItem(): LibraryItem.Online {
+        return LibraryItem.Online(
+            sourceId = sourceId,
+            url = url,
+            title = title,
+            thumbnailUrl = thumbnailUrl,
+            subtitle = sourceName(sourceId),
+        )
+    }
+
+    private fun net.spin.tachiyomi.legacy.data.model.HistoryRef.toOnlineItem(): LibraryItem.Online {
+        val progress = if (lastTotalPages > 0) {
+            (lastPageIndex.toFloat() / lastTotalPages).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+        val chapterLabel = lastChapterName?.takeIf { it.isNotBlank() } ?: ""
+        val subtitle = buildString {
+            if (chapterLabel.isNotBlank()) {
+                append(chapterLabel)
+                if (lastTotalPages > 0) append(" · ${"%.0f".format(progress * 100)}%")
+                append(" · ")
+            }
+            append(formatRelativeDate(lastReadAt))
+        }
+        return LibraryItem.Online(
+            sourceId = sourceId,
+            url = url,
+            title = title,
+            thumbnailUrl = thumbnailUrl,
+            subtitle = subtitle,
+            readPercent = progress,
+        )
+    }
+
+    private fun sourceName(sourceId: Long): String {
+        return SourceManager.getByIdOrNull(sourceId)?.name ?: "Fuente $sourceId"
+    }
+
+    private fun formatRelativeDate(dateMillis: Long): String = TimeUtil.formatRelative(dateMillis)
+
     private class MangaAdapter(
-        private val onClick: (MangaFile) -> Unit,
-        private val onLongClick: (MangaFile) -> Unit
+        private val onClick: (LibraryItem) -> Unit,
+        private val onLongClick: (LibraryItem) -> Boolean
     ) : RecyclerView.Adapter<MangaAdapter.VH>() {
 
-        private var items = listOf<MangaFile>()
+        private var items = listOf<LibraryItem>()
 
-        fun submit(list: List<MangaFile>) {
+        fun submit(list: List<LibraryItem>) {
             items = list
+            notifyDataSetChanged()
+        }
+
+        fun clear() {
+            items = emptyList()
             notifyDataSetChanged()
         }
 
@@ -747,30 +916,37 @@ class LibraryActivity : AppCompatActivity() {
         inner class VH(view: View) : RecyclerView.ViewHolder(view) {
 
             val title: TextView = view.findViewById(R.id.mangaTitle)
+            val subtitle: TextView = view.findViewById(R.id.mangaSubtitle)
             val cover: ImageView = view.findViewById(R.id.coverImage)
             val coverLoader: ProgressBar = view.findViewById(R.id.coverLoader)
             val progressBar: ProgressBar = view.findViewById(R.id.progressBar)
 
-            fun bind(manga: MangaFile) {
+            fun bind(item: LibraryItem) {
+                title.text = item.title
+
+                itemView.setOnClickListener { onClick(item) }
+                itemView.setOnLongClickListener { onLongClick(item) }
+
+                when (item) {
+                    is LibraryItem.Local -> bindLocal(item.manga)
+                    is LibraryItem.Online -> bindOnline(item)
+                }
+            }
+
+            private fun bindLocal(manga: MangaFile) {
                 val expectedKey = manga.file.absolutePath + ":" + manga.file.lastModified()
 
-                title.text = manga.title
+                subtitle.visibility = View.GONE
                 cover.tag = expectedKey
-
-                itemView.setOnClickListener { onClick(manga) }
-
-                itemView.setOnLongClickListener {
-                    onLongClick(manga)
-                    true
-                }
 
                 val last = Prefs.getLastPage(manga.file.absolutePath)
                 val total = Prefs.getTotalPages(manga.file.absolutePath)
 
                 if (total > 0) {
+                    progressBar.visibility = View.VISIBLE
                     progressBar.progress = ((last.toFloat() / total) * 100).toInt()
                 } else {
-                    progressBar.progress = 0
+                    progressBar.visibility = View.GONE
                 }
 
                 val cached = ThumbnailManager.getCachedThumb(manga.file)
@@ -796,6 +972,43 @@ class LibraryActivity : AppCompatActivity() {
                 }
             }
 
+            private fun bindOnline(item: LibraryItem.Online) {
+                cover.tag = item.url
+                coverLoader.visibility = View.VISIBLE
+
+                if (item.subtitle != null) {
+                    subtitle.text = item.subtitle
+                    subtitle.visibility = View.VISIBLE
+                } else {
+                    subtitle.visibility = View.GONE
+                }
+
+                if (item.readPercent > 0f) {
+                    progressBar.visibility = View.VISIBLE
+                    progressBar.progress = (item.readPercent * 100).toInt()
+                } else {
+                    progressBar.visibility = View.GONE
+                }
+
+                item.thumbnailUrl?.let { url ->
+                    ImageLoader.load(url) { bmp ->
+                        cover.post {
+                            if (bindingAdapterPosition == RecyclerView.NO_POSITION) return@post
+                            if (cover.tag != item.url) return@post
+                            coverLoader.visibility = View.GONE
+                            if (bmp != null && !bmp.isRecycled) {
+                                cover.setImageBitmap(bmp)
+                            } else {
+                                cover.setImageDrawable(null)
+                            }
+                        }
+                    }
+                } ?: run {
+                    coverLoader.visibility = View.GONE
+                    cover.setImageDrawable(null)
+                }
+            }
+
             private fun loadThumb(file: File) {
                 coverLoader.visibility = View.GONE
 
@@ -811,5 +1024,11 @@ class LibraryActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    companion object {
+        const val TAB_LOCAL = 0
+        const val TAB_FAVORITES = 1
+        const val TAB_HISTORY = 2
     }
 }

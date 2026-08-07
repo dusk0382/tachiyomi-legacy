@@ -11,13 +11,24 @@ object LibraryCache {
     private const val PREFS_NAME = "library_cache"
     private const val KEY_MANGA_LIST = "manga_list"
     private const val KEY_LAST_SCAN = "last_scan_time"
+    private const val KEY_CACHE_VERSION = "cache_version"
     private const val SCAN_INTERVAL_MS = 300000L
 
     private var prefs: SharedPreferences? = null
 
     fun init(context: Context) {
         if (prefs == null) {
-            prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, 0)
+            val app = context.applicationContext
+            prefs = app.getSharedPreferences(PREFS_NAME, 0)
+
+            // Invalida el cache si la app se actualizo (nuevos scans, p. ej. fix de SD).
+            try {
+                val version = app.packageManager.getPackageInfo(app.packageName, 0).versionCode
+                if (prefs?.getInt(KEY_CACHE_VERSION, 0) != version) {
+                    prefs?.edit()?.clear()?.putInt(KEY_CACHE_VERSION, version)?.apply()
+                }
+            } catch (_: Exception) {
+            }
         }
     }
 

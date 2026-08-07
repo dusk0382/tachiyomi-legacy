@@ -2,11 +2,10 @@ package net.spin.tachiyomi.legacy
 
 import android.content.Intent
 import android.os.Bundle
-import android.text.Editable
-import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.ImageView
 import android.widget.TextView
@@ -74,19 +73,22 @@ class CatalogActivity : AppCompatActivity() {
 
         binding.btnClearSearch.setOnClickListener {
             binding.searchBox.text.clear()
+            query = ""
+            reload()
         }
 
-        binding.searchBox.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: Editable?) {
-                val newQuery = s?.toString()?.trim().orEmpty()
-                if (newQuery != query) {
-                    query = newQuery
-                    reload()
-                }
+        // La busqueda solo se dispara con Enter (o al limpiar), para no saturar
+        // la fuente con una peticion por letra escrita.
+        binding.searchBox.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEARCH || actionId == EditorInfo.IME_ACTION_DONE) {
+                hideKeyboard()
+                query = binding.searchBox.text.toString().trim()
+                reload()
+                true
+            } else {
+                false
             }
-        })
+        }
 
         binding.recycler.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
@@ -97,6 +99,11 @@ class CatalogActivity : AppCompatActivity() {
         })
 
         reload()
+    }
+
+    private fun hideKeyboard() {
+        val imm = getSystemService(InputMethodManager::class.java)
+        imm?.hideSoftInputFromWindow(binding.searchBox.windowToken, 0)
     }
 
     private fun reload() {

@@ -18,6 +18,7 @@ class AppDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
         db.execSQL(CREATE_PROGRESS)
         db.execSQL(CREATE_SOURCES)
         db.execSQL(CREATE_DOWNLOADS)
+        db.execSQL(CREATE_HISTORY)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -29,17 +30,26 @@ class AppDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
                 // la columna ya existe o la tabla no esta; no romper nada
             }
         }
+        if (oldVersion < 3) {
+            // v3: tabla history (mangas online recientes)
+            try {
+                db.execSQL(CREATE_HISTORY)
+            } catch (_: Exception) {
+                // la tabla ya existe; no romper nada
+            }
+        }
     }
 
     companion object {
         const val DB_NAME = "tachiyomi_legacy.db"
-        const val DB_VERSION = 2
+        const val DB_VERSION = 3
 
         const val TBL_FAVORITES = "favorites"
         const val TBL_CHAPTERS = "chapters"
         const val TBL_PROGRESS = "progress"
         const val TBL_SOURCES = "sources"
         const val TBL_DOWNLOADS = "downloads"
+        const val TBL_HISTORY = "history"
 
         // favorites: one row per favorited online manga
         private const val CREATE_FAVORITES = """
@@ -111,6 +121,23 @@ class AppDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
                 file_path TEXT,
                 status INTEGER DEFAULT 0,
                 UNIQUE(source_id, manga_url, chapter_url, page_index)
+            )
+        """
+
+        // history: mangas online vistos recientemente
+        private const val CREATE_HISTORY = """
+            CREATE TABLE $TBL_HISTORY (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id INTEGER NOT NULL,
+                url TEXT NOT NULL,
+                title TEXT NOT NULL,
+                thumbnail_url TEXT,
+                last_read_at INTEGER NOT NULL,
+                last_chapter_url TEXT,
+                last_chapter_name TEXT,
+                last_page_index INTEGER DEFAULT 0,
+                last_total_pages INTEGER DEFAULT 0,
+                UNIQUE(source_id, url)
             )
         """
     }
@@ -186,4 +213,40 @@ object DownloadsTable {
     const val KEY_PAGE_INDEX = "page_index"
     const val KEY_FILE_PATH = "file_path"
     const val KEY_STATUS = "status"
+}
+
+object HistoryTable {
+    const val KEY_ID = "id"
+    const val KEY_SOURCE_ID = "source_id"
+    const val KEY_URL = "url"
+    const val KEY_TITLE = "title"
+    const val KEY_THUMBNAIL_URL = "thumbnail_url"
+    const val KEY_LAST_READ_AT = "last_read_at"
+    const val KEY_LAST_CHAPTER_URL = "last_chapter_url"
+    const val KEY_LAST_CHAPTER_NAME = "last_chapter_name"
+    const val KEY_LAST_PAGE_INDEX = "last_page_index"
+    const val KEY_LAST_TOTAL_PAGES = "last_total_pages"
+
+    fun toContentValues(
+        sourceId: Long,
+        url: String,
+        title: String,
+        thumbnailUrl: String?,
+        lastChapterUrl: String?,
+        lastChapterName: String?,
+        lastPageIndex: Int,
+        lastTotalPages: Int,
+    ): ContentValues {
+        return ContentValues().apply {
+            put(KEY_SOURCE_ID, sourceId)
+            put(KEY_URL, url)
+            put(KEY_TITLE, title)
+            thumbnailUrl?.let { put(KEY_THUMBNAIL_URL, it) }
+            put(KEY_LAST_READ_AT, System.currentTimeMillis())
+            lastChapterUrl?.let { put(KEY_LAST_CHAPTER_URL, it) }
+            lastChapterName?.let { put(KEY_LAST_CHAPTER_NAME, it) }
+            put(KEY_LAST_PAGE_INDEX, lastPageIndex)
+            put(KEY_LAST_TOTAL_PAGES, lastTotalPages)
+        }
+    }
 }

@@ -67,4 +67,41 @@ object ImageLoader {
     }
 
     fun getCached(url: String?): Bitmap? = url?.let { cache[it] }
+
+    /**
+     * Descarga (o sirve desde cache) una imagen y entrega el resultado en
+     * [onResult] desde el hilo principal. Util para callers que necesitan
+     * saber cuándo termina (p. ej. para ocultar un ProgressBar).
+     */
+    fun load(url: String?, onResult: (Bitmap?) -> Unit) {
+        if (url.isNullOrBlank()) {
+            onResult(null)
+            return
+        }
+
+        cache[url]?.let {
+            onResult(it)
+            return
+        }
+
+        executor.execute {
+            val bitmap = try {
+                network?.let { net ->
+                    val response = net.client.newCall(eu.kanade.tachiyomi.network.GET(url)).execute()
+                    response.use { resp ->
+                        if (!resp.isSuccessful) null
+                        else BitmapFactory.decodeStream(resp.body.byteStream())
+                    }
+                }
+            } catch (_: Exception) {
+                null
+            }
+
+            if (bitmap != null) cache[url] = bitmap
+
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                onResult(bitmap)
+            }
+        }
+    }
 }

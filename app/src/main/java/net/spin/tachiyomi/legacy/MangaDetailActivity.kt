@@ -8,9 +8,7 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import eu.kanade.tachiyomi.source.SourceManager
@@ -23,6 +21,7 @@ import net.spin.tachiyomi.legacy.data.model.MangaRef
 import net.spin.tachiyomi.legacy.data.online.OnlineRepository
 import net.spin.tachiyomi.legacy.databinding.ActivityMangaDetailBinding
 import net.spin.tachiyomi.legacy.util.ImageLoader
+import net.spin.tachiyomi.legacy.util.TimeUtil
 
 /**
  * Manga detail: shows the fetched details plus the chapter list.
@@ -108,6 +107,22 @@ class MangaDetailActivity : AppCompatActivity() {
                 binding.genreText.text = it.genre
                 binding.descriptionText.text = it.description?.trim()
                 it.thumbnail_url?.let { thumb -> ImageLoader.load(thumb, binding.cover) }
+
+                // Historial: registrar el manga como visto recientemente,
+                // conservando el progreso del ultimo capitulo si ya existia.
+                val existing = repository.getHistoryEntry(sourceId, it.url)
+                repository.upsertHistory(
+                    net.spin.tachiyomi.legacy.data.model.HistoryRef(
+                        sourceId = sourceId,
+                        url = it.url,
+                        title = it.title,
+                        thumbnailUrl = it.thumbnail_url,
+                        lastChapterUrl = existing?.lastChapterUrl,
+                        lastChapterName = existing?.lastChapterName,
+                        lastPageIndex = existing?.lastPageIndex ?: 0,
+                        lastTotalPages = existing?.lastTotalPages ?: 0,
+                    ),
+                )
             }.onFailure {
                 Toast.makeText(this@MangaDetailActivity, "Error: ${it.message}", Toast.LENGTH_SHORT).show()
             }
@@ -174,28 +189,15 @@ class MangaDetailActivity : AppCompatActivity() {
     }
 
     /** Fecha relativa para lo reciente ("hace 3 dias"), dd/MM/yyyy para lo antiguo. */
-    private fun formatUploadDate(dateMillis: Long): String {
-        val diff = System.currentTimeMillis() - dateMillis
-        val dayMillis = 24L * 60L * 60L * 1000L
-        if (diff > 0L) {
-            val days = diff / dayMillis
-            if (days < 30L) {
-                return when {
-                    days < 1L && diff >= 60L * 60L * 1000L -> "hace ${diff / (60L * 60L * 1000L)} h"
-                    days < 1L -> "hoy"
-                    days == 1L -> "ayer"
-                    else -> "hace $days días"
-                }
-            }
-        }
-        return SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date(dateMillis))
-    }
+    private fun formatUploadDate(dateMillis: Long): String = TimeUtil.formatRelative(dateMillis)
 
     private fun openReader(chapter: SChapter) {
         val intent = Intent(this, ReaderActivity::class.java).apply {
             putExtra(ReaderActivity.EXTRA_SOURCE_ID, sourceId)
             putExtra(ReaderActivity.EXTRA_CHAPTER_URL, chapter.url)
             putExtra(ReaderActivity.EXTRA_CHAPTER_NAME, chapter.name)
+            putExtra(ReaderActivity.EXTRA_MANGA_URL, mangaUrl)
+            putExtra(ReaderActivity.EXTRA_MANGA_TITLE, mangaTitle)
         }
         startActivity(intent)
     }
