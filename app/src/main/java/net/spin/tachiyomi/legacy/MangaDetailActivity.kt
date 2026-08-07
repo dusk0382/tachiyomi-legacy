@@ -3,9 +3,10 @@ package net.spin.tachiyomi.legacy
 import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
-import android.view.LayoutInflater
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -47,6 +48,11 @@ class MangaDetailActivity : AppCompatActivity() {
 
     private var chapters: List<SChapter> = emptyList()
 
+    /** Modo selección: long-press en un capítulo activa checkboxes para descarga selectiva. */
+    private var selectionMode = false
+    private val selectedChapters = LinkedHashSet<String>()
+    private val chapterCheckboxes = HashMap<String, CheckBox>()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMangaDetailBinding.inflate(layoutInflater)
@@ -59,7 +65,9 @@ class MangaDetailActivity : AppCompatActivity() {
         mangaTitle = intent.getStringExtra("manga_title") ?: ""
         binding.titleText.text = mangaTitle
 
-        binding.btnBack.setOnClickListener { finish() }
+        binding.btnBack.setOnClickListener {
+            if (selectionMode) exitSelection() else finish()
+        }
 
         binding.btnFavorite.setOnClickListener {
             val m = manga ?: return@setOnClickListener
@@ -132,9 +140,25 @@ class MangaDetailActivity : AppCompatActivity() {
         }
     }
 
-    /** Descargar: lanza la descarga de todos los capítulos, o elimina la existente. */
+    /** Descargar: en modo selección descarga solo los marcados; si no, todos o elimina. */
     private fun onDownloadClick() {
         if (isDownloading) return
+
+        if (selectionMode) {
+            if (selectedChapters.isEmpty()) {
+                Toast.makeText(this, "Mantén pulsado los capítulos que quieras descargar", Toast.LENGTH_SHORT).show()
+                return
+            }
+            val selected = chapters.filter { selectedChapters.contains(it.url) }
+            if (selected.isEmpty()) return
+            AlertDialog.Builder(this)
+                .setTitle("¿Descargar seleccionados?")
+                .setMessage("Se descargarán ${selected.size} capítulos a 'Descargas/MangaLite/$mangaTitle'.\nPuedes seguir usando la app mientras descarga.")
+                .setPositiveButton("Descargar") { _, _ -> startDownload(selected) }
+                .setNegativeButton("Cancelar", null)
+                .show()
+            return
+        }
 
         if (MangaDownloader.isMangaDownloaded(mangaTitle)) {
             AlertDialog.Builder(this)
@@ -158,14 +182,49 @@ class MangaDetailActivity : AppCompatActivity() {
 
         AlertDialog.Builder(this)
             .setTitle("¿Descargar el manga?")
-            .setMessage("Se descargarán ${chapters.size} capítulos a 'Descargas/MangaLite/${mangaTitle}'.\nPuedes seguir usando la app mientras descarga.")
-            .setPositiveButton("Descargar") { _, _ -> startDownload() }
+            .setMessage(
+                "Se descargarán ${chapters.size} capítulos a 'Descargas/MangaLite/$mangaTitle'.\n" +
+                    "Puedes seguir usando la app mientras descarga.\n\n" +
+                    "💡 ¿Solo algunos? Mantén pulsado un capítulo para elegirlos."
+            )
+            .setPositiveButton("Descargar todos") { _, _ -> startDownload(chapters) }
             .setNegativeButton("Cancelar", null)
             .show()
     }
 
-    private fun startDownload() {
-        val list = chapters
+    /** Modo selección: entrada, toggle, salida y estado. */
+    private fun enterSelection() {
+        selectionMode = true
+        selectedChapters.clear()
+        updateSelectionStatus()
+        refreshChapterRows()
+    }
+
+    private fun toggleSelection(url: String) {
+        if (!selectedChapters.add(url)) selectedChapters.remove(url)
+        chapterCheckboxes[url]?.isChecked = selectedChapters.contains(url)
+        updateSelectionStatus()
+    }
+
+    private fun updateSelectionStatus() {
+        if (!selectionMode) return
+        binding.downloadStatus.visibility = View.VISIBLE
+        binding.downloadStatus.text =
+            "${selectedChapters.size} seleccionados — toca ⬇ para descargar"
+        binding.btnDownload.contentDescription =
+            "Descargar ${selectedChapters.size} capítulos seleccionados"
+    }
+
+    private fun exitSelection() {
+        selectionMode = false
+        selectedChapters.clear()
+        chapterCheckboxes.clear()
+        binding.downloadStatus.visibility = View.GONE
+        refreshChapterRows()
+        updateDownloadIcon()
+    }
+
+    private fun startDownload(list: List<SChapter>) {
         if (list.isEmpty()) return
 
         val source = runCatching { SourceManager.getOrThrow(sourceId) }
@@ -190,8 +249,13 @@ class MangaDetailActivity : AppCompatActivity() {
             runOnUiThread {
                 isDownloading = false
                 binding.btnDownload.isEnabled = true
-                updateDownloadIcon()
-                refreshChapterRows()
+                if (selectionMode) {
+                    exitSelection()
+                } else {
+                    updateDownloadIcon()
+                    refreshChapterRows()
+                }
+                binding.downloadStatus.visibility = View.VISIBLE
                 binding.downloadStatus.text = "Descarga completa"
                 binding.downloadStatus.postDelayed({
                     binding.downloadStatus.visibility = View.GONE
@@ -340,7 +404,8 @@ class MangaDetailActivity : AppCompatActivity() {
         val openChapterUrl = intent.getStringExtra("open_chapter_url")
         val isCurrent = !openChapterUrl.isNullOrBlank() && chapter.url == openChapterUrl
         val row = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             setPadding(12, 10, 12, 10)
             background = if (isCurrent) {
                 androidx.core.content.ContextCompat.getDrawable(
@@ -351,37 +416,74 @@ class MangaDetailActivity : AppCompatActivity() {
                 androidx.core.content.ContextCompat.getDrawable(this@MangaDetailActivity, android.R.drawable.list_selector_background)
             }
         }
+
+        // Checkbox de selección (solo visible en modo selección).
+        val checkbox = CheckBox(this).apply {
+            visibility = if (selectionMode) View.VISIBLE else View.GONE
+            isChecked = selectedChapters.contains(chapter.url)
+            isClickable = false
+            isFocusable = false
+        }
+        if (selectionMode) chapterCheckboxes[chapter.url] = checkbox
+
+        val texts = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
         val downloaded = MangaDownloader.chapterFile(mangaTitle, chapter.name, chapter.url) != null
-        row.addView(TextView(this).apply {
+        texts.addView(TextView(this).apply {
             text = (if (downloaded) "⬇ " else "") + chapter.name
             textSize = 14f
             setTextColor(getColor(R.color.text_primary))
         })
         if (chapter.date_upload > 0L) {
-            row.addView(TextView(this).apply {
+            texts.addView(TextView(this).apply {
                 text = formatUploadDate(chapter.date_upload)
                 textSize = 11f
                 setTextColor(getColor(R.color.text_secondary))
                 setPadding(0, 2, 0, 0)
             })
         }
+        row.addView(checkbox)
+        row.addView(texts)
+
         row.setOnClickListener {
-            // Si el capitulo esta descargado, abrir el CBZ local (offline).
-            val local = MangaDownloader.chapterFile(mangaTitle, chapter.name, chapter.url)
-            if (local != null) {
-                openLocalReader(local, chapter.name)
+            if (selectionMode) {
+                toggleSelection(chapter.url)
             } else {
-                openReader(chapter)
+                // Si el capitulo esta descargado, abrir el CBZ local (offline).
+                val local = MangaDownloader.chapterFile(mangaTitle, chapter.name, chapter.url)
+                if (local != null) {
+                    openLocalReader(local, chapter.name)
+                } else {
+                    openReader(chapter)
+                }
             }
+        }
+        row.setOnLongClickListener {
+            if (!isDownloading) {
+                if (!selectionMode) enterSelection()
+                toggleSelection(chapter.url)
+            }
+            true
         }
         return row
     }
 
     /** Re-renderiza solo las filas (sin re-persistir ni re-disparar el auto-open). */
     private fun refreshChapterRows() {
+        chapterCheckboxes.clear()
         binding.chaptersContainer.removeAllViews()
         chapters.forEach { chapter ->
             binding.chaptersContainer.addView(chapterRow(chapter))
+        }
+    }
+
+    override fun onBackPressed() {
+        if (selectionMode) {
+            exitSelection()
+        } else {
+            super.onBackPressed()
         }
     }
 

@@ -63,7 +63,7 @@ internal class InMangaParser(context: MangaLoaderContext) : PagedMangaParser(
 		.add("X-Requested-With", "XMLHttpRequest")
 		.build()
 
-	private val imageCDN = "https://cdn1.intomanga.com"
+	private val imageCDN = "https://pack-yak.intomanga.com"
 	private val chapterDateFormat = SimpleDateFormat("yyyy-MM-dd", sourceLocale)
 
 	private fun buildFormData(
@@ -230,15 +230,12 @@ internal class InMangaParser(context: MangaLoaderContext) : PagedMangaParser(
 		)
 		val document = response.parseHtml()
 
-		// InManga migrated its image CDN. Pages now live at:
-		//   https://cdn1.intomanga.com/i/m/{mangaId}/c/{chapterId}/o/{pageId}.jpg
-		// The ids come from the hidden inputs of the chapter page (lowercase GUIDs).
-		val chapterId = document.select("[id=\"ChapterIdentification\"]").attr("value")
-		val mangaId = document.select("[id=\"MangaIdentification\"]").attr("value")
+		val ch = document.select("[id=\"FriendlyChapterNumberUrl\"]").attr("value")
+		val title = document.select("[id=\"FriendlyMangaName\"]").attr("value")
 
 		return document.select("img.ImageContainer").mapIndexed { index, img ->
 			val imageId = img.attr("id")
-			val imageUrl = "$imageCDN/i/m/$mangaId/c/$chapterId/o/$imageId.jpg"
+			val imageUrl = "$imageCDN/images/manga/$title/chapter/$ch/page/${index + 1}/$imageId"
 
 			MangaPage(
 				id = index.toLong(),
