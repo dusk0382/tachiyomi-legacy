@@ -102,46 +102,50 @@ class MangaDetailActivity : AppCompatActivity() {
             ImageLoader.load(it, binding.cover)
         }
 
-        // Detalles y capitulos se cargan EN PARALELO (la lista de capitulos
-        // aparece en cuanto llega, sin esperar a que acabe el detalle).
+        // Detalles y capitulos se cargan EN PARALELO y cada uno renderiza
+        // en cuanto llega (sin que la lista espere a que acabe el detalle).
         lifecycleScope.launch {
             coroutineScope {
                 val details = async { OnlineRepository.fetchMangaDetails(sourceId, smanga) }
                 val chapters = async { OnlineRepository.fetchChapterList(sourceId, smanga) }
 
-                details.await().onSuccess {
-                    manga = it
-                    binding.titleText.text = it.title
-                    binding.authorText.text = listOfNotNull(it.author, it.artist).filter { it.isNotBlank() }.joinToString(" · ")
-                    binding.statusText.text = statusLabel(it.status)
-                    binding.genreText.text = it.genre
-                    binding.descriptionText.text = it.description?.trim()
-                    it.thumbnail_url?.let { thumb -> ImageLoader.load(thumb, binding.cover) }
+                launch {
+                    details.await().onSuccess {
+                        manga = it
+                        binding.titleText.text = it.title
+                        binding.authorText.text = listOfNotNull(it.author, it.artist).filter { it.isNotBlank() }.joinToString(" · ")
+                        binding.statusText.text = statusLabel(it.status)
+                        binding.genreText.text = it.genre
+                        binding.descriptionText.text = it.description?.trim()
+                        it.thumbnail_url?.let { thumb -> ImageLoader.load(thumb, binding.cover) }
 
-                    // Historial: registrar el manga como visto recientemente,
-                    // conservando el progreso del ultimo capitulo si ya existia.
-                    val existing = repository.getHistoryEntry(sourceId, it.url)
-                    repository.upsertHistory(
-                        net.spin.tachiyomi.legacy.data.model.HistoryRef(
-                            sourceId = sourceId,
-                            url = it.url,
-                            title = it.title,
-                            thumbnailUrl = it.thumbnail_url,
-                            lastChapterUrl = existing?.lastChapterUrl,
-                            lastChapterName = existing?.lastChapterName,
-                            lastPageIndex = existing?.lastPageIndex ?: 0,
-                            lastTotalPages = existing?.lastTotalPages ?: 0,
-                        ),
-                    )
-                }.onFailure {
-                    Toast.makeText(this@MangaDetailActivity, "Error: ${it.message}", Toast.LENGTH_SHORT).show()
+                        // Historial: registrar el manga como visto recientemente,
+                        // conservando el progreso del ultimo capitulo si ya existia.
+                        val existing = repository.getHistoryEntry(sourceId, it.url)
+                        repository.upsertHistory(
+                            net.spin.tachiyomi.legacy.data.model.HistoryRef(
+                                sourceId = sourceId,
+                                url = it.url,
+                                title = it.title,
+                                thumbnailUrl = it.thumbnail_url,
+                                lastChapterUrl = existing?.lastChapterUrl,
+                                lastChapterName = existing?.lastChapterName,
+                                lastPageIndex = existing?.lastPageIndex ?: 0,
+                                lastTotalPages = existing?.lastTotalPages ?: 0,
+                            ),
+                        )
+                    }.onFailure {
+                        Toast.makeText(this@MangaDetailActivity, "Error: ${it.message}", Toast.LENGTH_SHORT).show()
+                    }
                 }
 
-                chapters.await().onSuccess { list ->
-                    renderChapters(list)
-                }.onFailure {
-                    binding.chaptersProgress.visibility = View.GONE
-                    Toast.makeText(this@MangaDetailActivity, "Error capítulos: ${it.message}", Toast.LENGTH_SHORT).show()
+                launch {
+                    chapters.await().onSuccess { list ->
+                        renderChapters(list)
+                    }.onFailure {
+                        binding.chaptersProgress.visibility = View.GONE
+                        Toast.makeText(this@MangaDetailActivity, "Error capítulos: ${it.message}", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
 
