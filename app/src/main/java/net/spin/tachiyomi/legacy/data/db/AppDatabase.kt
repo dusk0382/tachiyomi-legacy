@@ -21,18 +21,19 @@ class AppDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // No migrations needed yet; wipe on version bump for now.
-        db.execSQL("DROP TABLE IF EXISTS favorites")
-        db.execSQL("DROP TABLE IF EXISTS chapters")
-        db.execSQL("DROP TABLE IF EXISTS progress")
-        db.execSQL("DROP TABLE IF EXISTS sources")
-        db.execSQL("DROP TABLE IF EXISTS downloads")
-        onCreate(db)
+        if (oldVersion < 2) {
+            // v2: chapters.upload_date (fecha de subida del capitulo)
+            try {
+                db.execSQL("ALTER TABLE $TBL_CHAPTERS ADD COLUMN upload_date INTEGER DEFAULT 0")
+            } catch (_: Exception) {
+                // la columna ya existe o la tabla no esta; no romper nada
+            }
+        }
     }
 
     companion object {
         const val DB_NAME = "tachiyomi_legacy.db"
-        const val DB_VERSION = 1
+        const val DB_VERSION = 2
 
         const val TBL_FAVORITES = "favorites"
         const val TBL_CHAPTERS = "chapters"
@@ -70,6 +71,7 @@ class AppDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
                 scanlator TEXT,
                 chapter_number REAL,
                 read INTEGER DEFAULT 0,
+                upload_date INTEGER DEFAULT 0,
                 UNIQUE(source_id, manga_url, url)
             )
         """
@@ -147,6 +149,7 @@ object ChaptersTable {
     const val KEY_SCANLATOR = "scanlator"
     const val KEY_CHAPTER_NUMBER = "chapter_number"
     const val KEY_READ = "read"
+    const val KEY_UPLOAD_DATE = "upload_date"
 
     fun toContentValues(sourceId: Long, mangaUrl: String, url: String, name: String): ContentValues {
         return ContentValues().apply {

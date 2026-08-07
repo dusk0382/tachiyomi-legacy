@@ -29,6 +29,7 @@ data class ChapterRef(
     val scanlator: String? = null,
     val chapterNumber: Double = 0.0,
     val read: Boolean = false,
+    val uploadDate: Long = 0L,
 ) {
     val key: String get() = "$sourceId:$mangaUrl:$url"
 }

@@ -5,8 +5,12 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import eu.kanade.tachiyomi.source.SourceManager
@@ -134,23 +138,57 @@ class MangaDetailActivity : AppCompatActivity() {
                     name = it.name,
                     scanlator = it.scanlator,
                     chapterNumber = it.chapter_number.toDouble(),
+                    uploadDate = it.date_upload,
                 )
             },
         )
 
         chapters.forEach { chapter ->
-            val tv = TextView(this).apply {
-                text = chapter.name
-                textSize = 14f
-                setTextColor(getColor(R.color.text_primary))
-                setPadding(12, 14, 12, 14)
-                background = androidx.core.content.ContextCompat.getDrawable(this@MangaDetailActivity, android.R.drawable.list_selector_background)
-            }
-            tv.setOnClickListener {
-                openReader(chapter)
-            }
-            binding.chaptersContainer.addView(tv)
+            binding.chaptersContainer.addView(chapterRow(chapter))
         }
+    }
+
+    private fun chapterRow(chapter: SChapter): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(12, 10, 12, 10)
+            background = androidx.core.content.ContextCompat.getDrawable(this@MangaDetailActivity, android.R.drawable.list_selector_background)
+        }
+        row.addView(TextView(this).apply {
+            text = chapter.name
+            textSize = 14f
+            setTextColor(getColor(R.color.text_primary))
+        })
+        if (chapter.date_upload > 0L) {
+            row.addView(TextView(this).apply {
+                text = formatUploadDate(chapter.date_upload)
+                textSize = 11f
+                setTextColor(getColor(R.color.text_secondary))
+                setPadding(0, 2, 0, 0)
+            })
+        }
+        row.setOnClickListener {
+            openReader(chapter)
+        }
+        return row
+    }
+
+    /** Fecha relativa para lo reciente ("hace 3 dias"), dd/MM/yyyy para lo antiguo. */
+    private fun formatUploadDate(dateMillis: Long): String {
+        val diff = System.currentTimeMillis() - dateMillis
+        val dayMillis = 24L * 60L * 60L * 1000L
+        if (diff > 0L) {
+            val days = diff / dayMillis
+            if (days < 30L) {
+                return when {
+                    days < 1L && diff >= 60L * 60L * 1000L -> "hace ${diff / (60L * 60L * 1000L)} h"
+                    days < 1L -> "hoy"
+                    days == 1L -> "ayer"
+                    else -> "hace $days días"
+                }
+            }
+        }
+        return SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date(dateMillis))
     }
 
     private fun openReader(chapter: SChapter) {

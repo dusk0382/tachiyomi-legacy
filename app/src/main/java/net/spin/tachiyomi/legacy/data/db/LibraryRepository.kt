@@ -101,6 +101,7 @@ class LibraryRepository(context: Context) {
                     chapter.scanlator?.let { put(ChaptersTable.KEY_SCANLATOR, it) }
                     put(ChaptersTable.KEY_CHAPTER_NUMBER, chapter.chapterNumber)
                     put(ChaptersTable.KEY_READ, if (chapter.read) 1 else 0)
+                    put(ChaptersTable.KEY_UPLOAD_DATE, chapter.uploadDate)
                 }
                 wdb.insertWithOnConflict(
                     AppDatabase.TBL_CHAPTERS,
@@ -137,6 +138,7 @@ class LibraryRepository(context: Context) {
                             scanlator = cursor.getStringOrNull(ChaptersTable.KEY_SCANLATOR),
                             chapterNumber = cursor.getDouble(cursor.getColumnIndexOrThrow(ChaptersTable.KEY_CHAPTER_NUMBER)),
                             read = read,
+                            uploadDate = cursor.getLongOrNull(ChaptersTable.KEY_UPLOAD_DATE) ?: 0L,
                         ),
                     )
                 }
