@@ -177,11 +177,13 @@ class MangaDetailActivity : AppCompatActivity() {
         isDownloading = true
         binding.btnDownload.isEnabled = false
         binding.btnDownload.setImageResource(android.R.drawable.ic_popup_sync)
+        binding.downloadStatus.visibility = View.VISIBLE
+        binding.downloadStatus.text = "Descargando 0/${list.size}..."
 
         lifecycleScope.launch(Dispatchers.IO) {
             MangaDownloader.downloadManga(source, list, mangaTitle) { done, total ->
                 runOnUiThread {
-                    binding.btnDownload.contentDescription = "Descargando $done/$total"
+                    binding.downloadStatus.text = "Descargando $done/$total..."
                 }
             }
 
@@ -190,6 +192,10 @@ class MangaDetailActivity : AppCompatActivity() {
                 binding.btnDownload.isEnabled = true
                 updateDownloadIcon()
                 refreshChapterRows()
+                binding.downloadStatus.text = "Descarga completa"
+                binding.downloadStatus.postDelayed({
+                    binding.downloadStatus.visibility = View.GONE
+                }, 3000)
                 Toast.makeText(
                     this@MangaDetailActivity,
                     "Descarga completa",
@@ -345,7 +351,7 @@ class MangaDetailActivity : AppCompatActivity() {
                 androidx.core.content.ContextCompat.getDrawable(this@MangaDetailActivity, android.R.drawable.list_selector_background)
             }
         }
-        val downloaded = MangaDownloader.chapterFile(mangaTitle, chapter.name) != null
+        val downloaded = MangaDownloader.chapterFile(mangaTitle, chapter.name, chapter.url) != null
         row.addView(TextView(this).apply {
             text = (if (downloaded) "⬇ " else "") + chapter.name
             textSize = 14f
@@ -361,7 +367,7 @@ class MangaDetailActivity : AppCompatActivity() {
         }
         row.setOnClickListener {
             // Si el capitulo esta descargado, abrir el CBZ local (offline).
-            val local = MangaDownloader.chapterFile(mangaTitle, chapter.name)
+            val local = MangaDownloader.chapterFile(mangaTitle, chapter.name, chapter.url)
             if (local != null) {
                 openLocalReader(local, chapter.name)
             } else {

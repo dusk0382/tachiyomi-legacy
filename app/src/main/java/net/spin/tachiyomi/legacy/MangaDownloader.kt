@@ -37,16 +37,26 @@ object MangaDownloader {
         return cleaned.ifBlank { "manga" }
     }
 
-    /** Archivo CBZ del capítulo, o null si no está descargado. */
-    fun chapterFile(mangaTitle: String, chapterName: String): File? {
-        val f = File(mangaDir(mangaTitle), sanitize(chapterName) + ".cbz")
+    /** Nombre del CBZ: nombre sanitizado + sufijo estable del url (evita colisiones). */
+    private fun cbzName(chapterName: String, chapterUrl: String): String {
+        val suffix = chapterUrl.hashCode().toUInt().toString(16).take(6)
+        return "${sanitize(chapterName)}_$suffix.cbz"
+    }
+
+    /**
+     * Archivo CBZ del capítulo, o null si no está descargado.
+     * Sin mkdirs: se puede llamar desde el hilo principal en el render.
+     */
+    fun chapterFile(mangaTitle: String, chapterName: String, chapterUrl: String): File? {
+        val base = File(rootDir(), sanitize(mangaTitle))
+        val f = File(base, cbzName(chapterName, chapterUrl))
         return if (f.exists() && f.length() > 0) f else null
     }
 
-    /** ¿Hay al menos un capítulo descargado de este manga? */
+    /** ¿Hay al menos un capítulo descargado de este manga? (sin mkdirs) */
     fun isMangaDownloaded(mangaTitle: String): Boolean {
-        val dir = mangaDir(mangaTitle)
-        return dir.listFiles()?.any { it.isFile && it.extension.equals("cbz", ignoreCase = true) } == true
+        val base = File(rootDir(), sanitize(mangaTitle))
+        return base.listFiles()?.any { it.isFile && it.extension.equals("cbz", ignoreCase = true) } == true
     }
 
     /** Elimina toda la descarga del manga. */
@@ -66,7 +76,7 @@ object MangaDownloader {
         val total = chapters.size
 
         for (chapter in chapters) {
-            val existing = File(dir, sanitize(chapter.name) + ".cbz")
+            val existing = File(dir, cbzName(chapter.name, chapter.url))
             if (existing.exists() && existing.length() > 0) {
                 done++
                 onProgress(done, total)
@@ -111,7 +121,7 @@ object MangaDownloader {
 
             if (downloaded == 0) return false
 
-            val cbz = File(dir, sanitize(chapter.name) + ".cbz")
+            val cbz = File(dir, cbzName(chapter.name, chapter.url))
             if (cbz.exists()) cbz.delete()
 
             return zipFolder(tmpDir, cbz)
