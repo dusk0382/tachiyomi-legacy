@@ -68,33 +68,45 @@ class SourceHealthCheck {
             if (chapters.isEmpty()) return sb.append("\tSIN_CAPITULOS").toString()
             sb.append("caps:${chapters.size}\t")
 
-            val pages = runBlocking {
-                withTimeout(45_000) { parser.getPages(chapters.first()) }
-            }
-            if (pages.isEmpty()) return sb.append("\tSIN_PAGINAS").toString()
-            sb.append("pags:${pages.size}\t")
-
-            val imageUrl = runBlocking {
-                withTimeout(30_000) { parser.getPageUrl(pages.first()) }
-            }
-            sb.append("\turl\t")
-
-            val request = Request.Builder().url(imageUrl)
-                .header("User-Agent", context.getDefaultUserAgent())
-                .header("Referer", "https://${parser.domain}/")
-                .header("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
-                .build()
-            val (code, contentType, length) = runBlocking {
-                context.httpClient.newCall(request).execute().use { resp ->
-                    Triple(resp.code, resp.header("Content-Type"), resp.body?.contentLength() ?: -1)
+            // Probe several chapters (first / middle / last) and keep the best result.
+            // Some sites (InManga) are migrating their CDN by upload date, so old
+            // chapters may 404 while recent ones work.
+            val candidates = listOf(0, chapters.size / 2, chapters.size - 1).distinct().map { chapters[it] }
+            var best = "\tSIN_PAGINAS"
+            candidates.forEach { chapter ->
+                val pages = runBlocking {
+                    withTimeout(45_000) { parser.getPages(chapter) }
                 }
-            }
+                if (pages.isEmpty()) return@forEach
+                val imageUrl = runBlocking {
+                    withTimeout(30_000) { parser.getPageUrl(pages.first()) }
+                }
 
-            if (code in 200..299 && contentType?.startsWith("image") == true) {
-                sb.append("\tIMAGEN_OK:$length")
-            } else {
-                sb.append("\tIMAGEN_$code:$contentType")
+                val request = Request.Builder().url(imageUrl)
+                    .header("User-Agent", context.getDefaultUserAgent())
+                    .header("Referer", "https://${parser.domain}/")
+                    .header("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
+                    .build()
+                val (code, contentType, length) = runBlocking {
+                    context.httpClient.newCall(request).execute().use { resp ->
+                        Triple(resp.code, resp.header("Content-Type"), resp.body?.contentLength() ?: -1)
+                    }
+                }
+
+                val result = if (code in 200..299 && contentType?.startsWith("image") == true) {
+                    "\tIMAGEN_OK:$length"
+                } else {
+                    "\tIMAGEN_$code:$contentType"
+                }
+                if (result.startsWith("\tIMAGEN_OK")) {
+                    best = result
+                    return@forEach
+                }
+                if (best == "\tSIN_PAGINAS") best = result
             }
+            sb.append("pags:${runBlocking { withTimeout(45_000) { parser.getPages(candidates.first()) } }.size}\t")
+            sb.append("\turl\t")
+            sb.append(best)
             sb.toString()
         } catch (e: Exception) {
             sb.append("\tFALLO:${e.message?.take(130) ?: e.javaClass.simpleName}")
