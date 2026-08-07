@@ -19,6 +19,7 @@ class AppDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
         db.execSQL(CREATE_SOURCES)
         db.execSQL(CREATE_DOWNLOADS)
         db.execSQL(CREATE_HISTORY)
+        db.execSQL(CREATE_PRIVATE_MANGA)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -38,11 +39,19 @@ class AppDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
                 // la tabla ya existe; no romper nada
             }
         }
+        if (oldVersion < 4) {
+            // v4: tabla private_manga (mangos online en carpeta privada)
+            try {
+                db.execSQL(CREATE_PRIVATE_MANGA)
+            } catch (_: Exception) {
+                // la tabla ya existe; no romper nada
+            }
+        }
     }
 
     companion object {
         const val DB_NAME = "tachiyomi_legacy.db"
-        const val DB_VERSION = 3
+        const val DB_VERSION = 4
 
         const val TBL_FAVORITES = "favorites"
         const val TBL_CHAPTERS = "chapters"
@@ -50,6 +59,7 @@ class AppDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
         const val TBL_SOURCES = "sources"
         const val TBL_DOWNLOADS = "downloads"
         const val TBL_HISTORY = "history"
+        const val TBL_PRIVATE_MANGA = "private_manga"
 
         // favorites: one row per favorited online manga
         private const val CREATE_FAVORITES = """
@@ -140,6 +150,19 @@ class AppDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
                 UNIQUE(source_id, url)
             )
         """
+
+        // private_manga: mangos online ocultos en la carpeta privada
+        private const val CREATE_PRIVATE_MANGA = """
+            CREATE TABLE $TBL_PRIVATE_MANGA (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id INTEGER NOT NULL,
+                url TEXT NOT NULL,
+                title TEXT NOT NULL,
+                thumbnail_url TEXT,
+                date_added INTEGER NOT NULL,
+                UNIQUE(source_id, url)
+            )
+        """
     }
 }
 
@@ -213,6 +236,24 @@ object DownloadsTable {
     const val KEY_PAGE_INDEX = "page_index"
     const val KEY_FILE_PATH = "file_path"
     const val KEY_STATUS = "status"
+}
+
+object PrivateMangaTable {
+    const val KEY_ID = "id"
+    const val KEY_SOURCE_ID = "source_id"
+    const val KEY_URL = "url"
+    const val KEY_TITLE = "title"
+    const val KEY_THUMBNAIL_URL = "thumbnail_url"
+    const val KEY_DATE_ADDED = "date_added"
+
+    fun toContentValues(sourceId: Long, url: String, title: String): ContentValues {
+        return ContentValues().apply {
+            put(KEY_SOURCE_ID, sourceId)
+            put(KEY_URL, url)
+            put(KEY_TITLE, title)
+            put(KEY_DATE_ADDED, System.currentTimeMillis())
+        }
+    }
 }
 
 object HistoryTable {

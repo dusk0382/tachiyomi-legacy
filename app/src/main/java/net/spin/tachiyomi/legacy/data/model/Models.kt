@@ -63,3 +63,14 @@ data class SourceRef(
     val lang: String,
     val baseUrl: String? = null,
 )
+
+/** Manga online guardado en la carpeta privada (oculto de historial/favoritos). */
+data class PrivateRef(
+    val sourceId: Long,
+    val url: String,
+    val title: String,
+    val thumbnailUrl: String? = null,
+    val dateAdded: Long = System.currentTimeMillis(),
+) {
+    val key: String get() = "$sourceId:$url"
+}

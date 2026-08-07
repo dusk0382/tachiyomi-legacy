@@ -1,5 +1,6 @@
 package net.spin.tachiyomi.legacy.kotatsu
 
+import eu.kanade.tachiyomi.extension.model.Extension
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.source.SourceManager
 import org.koitharu.kotatsu.parsers.model.ContentType
@@ -21,7 +22,53 @@ object KotatsuSourceManager {
         ContentType.GAME_CG,
     )
 
+    /**
+     * Fuentes excluidas por decision del usuario (verificadas con test de
+     * disponibilidad): caidas (DNS muerto, errores estables, timeouts) y
+     * las que pidio quitar manualmente (YaoiManga; portugues completo).
+     */
+    private val excludedNames = setOf(
+        // --- Español: caidas + YaoiManga ---
+        "ASIALOTUSS", "HERENSCAN", "INFRAFANDUB", "LEGENDSCANLATIONS",
+        "MARMOTA", "MENUDO_FANSUB", "MHSCANS", "RAIKISCAN", "TAURUSMANGA",
+        "TRADUCCIONESAMISTOSAS", "TUMANGAONLINE", "WEEBDEX_ES", "YAOIMANGA",
+        // --- Portugués: todas ---
+        "ALONESCANLATOR", "ANIMEXNOVEL", "ARCTICSCAN", "ARTHUR_SCAN", "ATEMPORAL",
+        "BORUTOEXPLORER", "BRMANGASTOP", "CRYSTALSCAN", "DEMONSECT", "DIANXIATRADS",
+        "DREAMSCAN", "DUOSCANLATORS", "ELEVENSCANLATOR", "FAYSCANS", "FENIXPROJECT",
+        "FLOWERMANGA", "GALAXSCANS", "GHOSTSCAN", "HECKSCANS", "HIKARISCAN",
+        "IMPERIODABRITANNIA", "IRISSCANLATOR", "KAKUSEIPROJECT", "KALANGO",
+        "LEITORDEMANGA", "LEITORKAMISAMA", "LER999", "LERMANGAS", "LICHMANGAS",
+        "LIMBOSCAN", "LIMITEDTIMEPOJECT", "MAIDSCAN", "MAIDSECRET", "MANGABALL_PTBR",
+        "MANGAFIRE_PT", "MANGAFIRE_PTBR", "MANGALIVRE", "MANGANINJA", "MANGAONLINE",
+        "MANGAONLINE_BLOG", "MANGAPLUSPARSER_PTBR", "MANGATERRA", "MANHASTRO",
+        "MEDIOCRETOONS", "MINITWOSCAN", "MOONWITCHINLOVESCAN", "MUGIWARASOFICIAL",
+        "NEROXUS", "NINJASCAN", "NIRVANASCAN", "NORTEROSE", "ORIGAMIORPHEANS",
+        "PASSAMAOSCAN", "PLUMACOMICS", "POINTZEROTOONS", "RAYSSCAN", "SSREADING",
+        "SUSSYSCAN", "SWEETSCAN", "TATAKAE_SCANS", "TEMAKIMANGAS", "TOOMICSPT",
+        "TSUNDOKU", "TYRANTSCANS", "WEEBDEX_PT", "WICKEDWITCHSCAN", "WINTERSCAN",
+        "WOLFSCANBR", "WONDERLANDSCAN", "XSSCAN", "YANPFANSUB", "YAOIFANCLUB",
+        "YOMUMANGAS", "YUGENMANGAS",
+        // --- Inglés: caidas ---
+        "ASTRASCANS", "BANANA_MANGA", "BEETOON", "BOOKMANGA", "CYPHERSCANS",
+        "DAYCOMICS", "FIRESCANS", "HENTALK", "JIMANGA", "KUMASCANS",
+        "MANGACLASH", "MANGAECLIPSE", "MANGAFOREST", "MANGAGEKO", "MANGAGOJO",
+        "MANGAKISS", "MANGALEVELING", "MANGASECT", "MANGATXUNOFFICIAL", "MANGATX_GG",
+        "MANGAWEEBS", "MANHUAGA", "MANHUAGOLD", "MANHUAUSS", "MANHWAMANHUA",
+        "MANHWASMEN", "NECROSCANS", "READER_EVILFLOWERS", "REAPERSCANSUNORIGINAL",
+        "RESETSCANS", "SHOOTINGSTARSCANS", "TCBSCANSMANGA", "TECNOSCANS", "UTOON",
+        "WEEBDEX_EN", "ZANDYNOFANSUB", "ZIN_MANGA_COM",
+    )
+
     private var bridges: List<KotatsuSourceBridge> = emptyList()
+
+    /**
+     * Fuentes NSFW (hentai/doujinshi) visibles. Solo en memoria: se desactiva
+     * al cerrar la app o al volver a escribir "NSFWActivate" en el buscador.
+     */
+    @Volatile
+    var nsfwEnabled: Boolean = false
+        private set
 
     /** Construye (una vez) el loader y los bridges a partir del NetworkHelper de la app. */
     fun init(network: NetworkHelper) {
@@ -42,6 +89,20 @@ object KotatsuSourceManager {
     /** Fuentes de Kotatsu habilitadas. */
     fun allSources(): List<MangaParserSource> = MangaParserSource.entries
         .filter { !it.isBroken }
-        .filter { it.contentType !in excludedTypes }
+        .filter { nsfwEnabled || it.contentType !in excludedTypes }
         .filter { it.locale in ENABLED_LOCALES.split(',') }
+        .filter { it.name !in excludedNames }
+
+    /**
+     * Activa/desactiva las fuentes NSFW reconstruyendo los bridges y
+     * re-registrandolos en el SourceManager (efecto inmediato).
+     */
+    fun applyNsfw(network: NetworkHelper, extensions: List<Extension.Installed>, enabled: Boolean) {
+        nsfwEnabled = enabled
+        SourceManager.clear()
+        SourceManager.registerExtensions(extensions)
+        bridges = emptyList()
+        init(network)
+        registerAll()
+    }
 }

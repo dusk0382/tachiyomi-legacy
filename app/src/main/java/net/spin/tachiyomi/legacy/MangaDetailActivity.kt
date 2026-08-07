@@ -1,5 +1,6 @@
 package net.spin.tachiyomi.legacy
 
+import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -41,6 +42,8 @@ class MangaDetailActivity : AppCompatActivity() {
 
     private var manga: SManga? = null
     private var isFavorite = false
+    private var isPrivate = false
+    private var isDownloading = false
 
     private var chapters: List<SChapter> = emptyList()
 
@@ -82,7 +85,140 @@ class MangaDetailActivity : AppCompatActivity() {
             updateFavoriteIcon()
         }
 
+        binding.btnPrivate.setOnClickListener { onPrivateClick() }
+        binding.btnDownload.setOnClickListener { onDownloadClick() }
+
         loadDetails()
+    }
+
+    /** Candado: mover a / sacar de la carpeta privada (quita de historial y favoritos). */
+    private fun onPrivateClick() {
+        if (isPrivate) {
+            AlertDialog.Builder(this)
+                .setTitle("¿Sacar de la carpeta privada?")
+                .setMessage("'$mangaTitle' volverá a mostrarse en las fuentes.")
+                .setPositiveButton("Sacar") { _, _ ->
+                    repository.removePrivateOnline(sourceId, mangaUrl)
+                    isPrivate = false
+                    updatePrivateIcon()
+                    Toast.makeText(this, "Sacado de la carpeta privada", Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton("Cancelar", null)
+                .show()
+        } else {
+            AlertDialog.Builder(this)
+                .setTitle("¿Mover a carpeta privada?")
+                .setMessage(
+                    "'$mangaTitle' se ocultará de historial y favoritos. " +
+                        "Para verlo de nuevo, entra en modo privado (SecureFolderActivate)."
+                )
+                .setPositiveButton("Mover") { _, _ ->
+                    repository.addPrivateOnline(
+                        net.spin.tachiyomi.legacy.data.model.PrivateRef(
+                            sourceId = sourceId,
+                            url = mangaUrl,
+                            title = manga?.title ?: mangaTitle,
+                            thumbnailUrl = manga?.thumbnail_url,
+                        ),
+                    )
+                    repository.removeHistory(sourceId, mangaUrl)
+                    repository.removeFavorite(sourceId, mangaUrl)
+                    isPrivate = true
+                    updatePrivateIcon()
+                    Toast.makeText(this, "Movido a carpeta privada", Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton("Cancelar", null)
+                .show()
+        }
+    }
+
+    /** Descargar: lanza la descarga de todos los capítulos, o elimina la existente. */
+    private fun onDownloadClick() {
+        if (isDownloading) return
+
+        if (MangaDownloader.isMangaDownloaded(mangaTitle)) {
+            AlertDialog.Builder(this)
+                .setTitle("¿Eliminar descarga?")
+                .setMessage("Se borrarán los capítulos descargados de '$mangaTitle'.")
+                .setPositiveButton("Eliminar") { _, _ ->
+                    MangaDownloader.deleteManga(mangaTitle)
+                    updateDownloadIcon()
+                    refreshChapterRows()
+                    Toast.makeText(this, "Descarga eliminada", Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton("Cancelar", null)
+                .show()
+            return
+        }
+
+        if (chapters.isEmpty()) {
+            Toast.makeText(this, "Espera a que carguen los capítulos", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("¿Descargar el manga?")
+            .setMessage("Se descargarán ${chapters.size} capítulos a 'Descargas/MangaLite/${mangaTitle}'.\nPuedes seguir usando la app mientras descarga.")
+            .setPositiveButton("Descargar") { _, _ -> startDownload() }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun startDownload() {
+        val list = chapters
+        if (list.isEmpty()) return
+
+        val source = runCatching { SourceManager.getOrThrow(sourceId) }
+            .getOrElse {
+                Toast.makeText(this, "Fuente no disponible", Toast.LENGTH_SHORT).show()
+                return
+            }
+
+        isDownloading = true
+        binding.btnDownload.isEnabled = false
+        binding.btnDownload.setImageResource(android.R.drawable.ic_popup_sync)
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            MangaDownloader.downloadManga(source, list, mangaTitle) { done, total ->
+                runOnUiThread {
+                    binding.btnDownload.contentDescription = "Descargando $done/$total"
+                }
+            }
+
+            runOnUiThread {
+                isDownloading = false
+                binding.btnDownload.isEnabled = true
+                updateDownloadIcon()
+                refreshChapterRows()
+                Toast.makeText(
+                    this@MangaDetailActivity,
+                    "Descarga completa",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
+
+    private fun updatePrivateIcon() {
+        isPrivate = repository.isPrivateOnline(sourceId, mangaUrl)
+        binding.btnPrivate.setImageResource(
+            if (isPrivate) android.R.drawable.ic_lock_idle_lock
+            else android.R.drawable.ic_lock_lock,
+        )
+        binding.btnPrivate.contentDescription =
+            if (isPrivate) "En carpeta privada" else "Mover a carpeta privada"
+    }
+
+    private fun updateDownloadIcon() {
+        binding.btnDownload.setImageResource(
+            if (MangaDownloader.isMangaDownloaded(mangaTitle)) {
+                android.R.drawable.ic_menu_agenda
+            } else {
+                android.R.drawable.ic_menu_save
+            },
+        )
+        binding.btnDownload.contentDescription =
+            if (MangaDownloader.isMangaDownloaded(mangaTitle)) "Descargado (tocar para eliminar)" else "Descargar manga"
     }
 
     private fun loadDetails() {
@@ -151,12 +287,15 @@ class MangaDetailActivity : AppCompatActivity() {
 
             updateFavoriteIcon()
         }
+
+        updatePrivateIcon()
+        updateDownloadIcon()
     }
 
     private fun renderChapters(chapters: List<SChapter>) {
         binding.chaptersProgress.visibility = View.GONE
-        binding.chaptersContainer.removeAllViews()
         this.chapters = chapters
+        refreshChapterRows()
 
         // Persist the chapter list for later offline/progress use.
         // En background: no bloquear el renderizado de la lista en pantalla.
@@ -174,10 +313,6 @@ class MangaDetailActivity : AppCompatActivity() {
                     )
                 },
             )
-        }
-
-        chapters.forEach { chapter ->
-            binding.chaptersContainer.addView(chapterRow(chapter))
         }
 
         // Si venimos del historial, abrir directamente el capitulo donde se dejo.
@@ -210,8 +345,9 @@ class MangaDetailActivity : AppCompatActivity() {
                 androidx.core.content.ContextCompat.getDrawable(this@MangaDetailActivity, android.R.drawable.list_selector_background)
             }
         }
+        val downloaded = MangaDownloader.chapterFile(mangaTitle, chapter.name) != null
         row.addView(TextView(this).apply {
-            text = chapter.name
+            text = (if (downloaded) "⬇ " else "") + chapter.name
             textSize = 14f
             setTextColor(getColor(R.color.text_primary))
         })
@@ -224,9 +360,33 @@ class MangaDetailActivity : AppCompatActivity() {
             })
         }
         row.setOnClickListener {
-            openReader(chapter)
+            // Si el capitulo esta descargado, abrir el CBZ local (offline).
+            val local = MangaDownloader.chapterFile(mangaTitle, chapter.name)
+            if (local != null) {
+                openLocalReader(local, chapter.name)
+            } else {
+                openReader(chapter)
+            }
         }
         return row
+    }
+
+    /** Re-renderiza solo las filas (sin re-persistir ni re-disparar el auto-open). */
+    private fun refreshChapterRows() {
+        binding.chaptersContainer.removeAllViews()
+        chapters.forEach { chapter ->
+            binding.chaptersContainer.addView(chapterRow(chapter))
+        }
+    }
+
+    private fun openLocalReader(file: java.io.File, chapterName: String) {
+        val lastPage = Prefs.getLastPage(file.absolutePath)
+        val intent = Intent(this, ReaderActivity::class.java).apply {
+            putExtra(ReaderActivity.EXTRA_PATH, file.absolutePath)
+            putExtra(ReaderActivity.EXTRA_TITLE, chapterName)
+            putExtra(ReaderActivity.EXTRA_LAST_PAGE, lastPage)
+        }
+        startActivity(intent)
     }
 
     /** Fecha relativa para lo reciente ("hace 3 dias"), dd/MM/yyyy para lo antiguo. */

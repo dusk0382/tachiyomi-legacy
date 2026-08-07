@@ -17,6 +17,9 @@ object MangaScanner {
         roots.add(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS))
         roots.add(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS))
 
+        // Descargas de la app (MangaLite): aparecen en la pestaña Local.
+        roots.add(MangaDownloader.rootDir())
+
         // Volumenes de almacenamiento del sistema (incluye la tarjeta SD externa).
         roots.addAll(storageVolumeRoots(context))
 

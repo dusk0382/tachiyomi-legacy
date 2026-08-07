@@ -30,6 +30,7 @@ import androidx.recyclerview.widget.RecyclerView
 import eu.kanade.tachiyomi.source.SourceManager
 import net.spin.tachiyomi.legacy.data.model.ChapterRef
 import net.spin.tachiyomi.legacy.databinding.ActivityLibraryBinding
+import net.spin.tachiyomi.legacy.kotatsu.KotatsuSourceManager
 import net.spin.tachiyomi.legacy.util.ImageLoader
 import net.spin.tachiyomi.legacy.util.TimeUtil
 import java.io.File
@@ -319,6 +320,19 @@ class LibraryActivity : AppCompatActivity() {
             override fun afterTextChanged(s: Editable?) {
                 currentQuery = s?.toString() ?: ""
 
+                if (currentQuery == "NSFWActivate") {
+                    binding.searchBox.text.clear()
+                    currentQuery = ""
+                    isSearchVisible = false
+                    binding.searchContainer.visibility = View.GONE
+
+                    val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                    imm.hideSoftInputFromWindow(binding.searchBox.windowToken, 0)
+
+                    toggleNsfw()
+                    return
+                }
+
                 if (currentQuery == "SecureFolderActivate") {
                     binding.searchBox.text.clear()
                     currentQuery = ""
@@ -348,6 +362,33 @@ class LibraryActivity : AppCompatActivity() {
                 applyFilters()
             }
         })
+    }
+
+    /** Activa/desactiva las fuentes NSFW (solo en memoria, se pierde al cerrar). */
+    private fun toggleNsfw() {
+        val app = application as App
+        val enabled = !KotatsuSourceManager.nsfwEnabled
+
+        try {
+            KotatsuSourceManager.applyNsfw(
+                app.networkHelper,
+                app.extensionManager.installedExtensions,
+                enabled,
+            )
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        Toast.makeText(
+            this,
+            if (enabled) {
+                "Fuentes NSFW activadas (solo esta sesión)"
+            } else {
+                "Fuentes NSFW desactivadas"
+            },
+            Toast.LENGTH_LONG,
+        ).show()
     }
 
     private fun handlePrivateFolderAccess() {
@@ -475,28 +516,50 @@ class LibraryActivity : AppCompatActivity() {
             return
         }
 
-        val sourceList = if (isPrivateMode) privateMangas else allMangas
+        val sourceList: List<LibraryItem> = if (isPrivateMode) {
+            // Modo privado: CBZ privados + mangos online privados.
+            val cbz = privateMangas.map { LibraryItem.Local(it) }
+            val online = (application as App).libraryRepository.getPrivateOnline().map { ref ->
+                LibraryItem.Online(
+                    sourceId = ref.sourceId,
+                    url = ref.url,
+                    title = ref.title,
+                    thumbnailUrl = ref.thumbnailUrl,
+                    subtitle = "🔒 Carpeta privada",
+                    isPrivate = true,
+                )
+            }
+            cbz + online
+        } else {
+            allMangas.map { LibraryItem.Local(it) }
+        }
 
         var list = sourceList
 
-        if (currentQuery.isNotBlank() && !isPrivateMode) {
+        if (currentQuery.isNotBlank()) {
             val q = currentQuery.lowercase()
             list = list.filter { it.title.lowercase().contains(q) }
         }
 
-        list = when (currentSort) {
-            0 -> list.sortedBy { it.title.lowercase() }
-            1 -> list.sortedByDescending { it.file.lastModified() }
-            2 -> list.sortedByDescending { it.file.length() }
-            3 -> list.sortedByDescending { manga ->
-                val last = Prefs.getLastPage(manga.file.absolutePath)
-                val total = Prefs.getTotalPages(manga.file.absolutePath)
-                if (total > 0) last.toFloat() / total else 0f
+        val allLocal = list.all { it is LibraryItem.Local }
+        list = if (allLocal) {
+            when (currentSort) {
+                0 -> list.sortedBy { it.title.lowercase() }
+                1 -> list.sortedByDescending { (it as LibraryItem.Local).manga.file.lastModified() }
+                2 -> list.sortedByDescending { (it as LibraryItem.Local).manga.file.length() }
+                3 -> list.sortedByDescending { manga ->
+                    val f = (manga as LibraryItem.Local).manga.file
+                    val last = Prefs.getLastPage(f.absolutePath)
+                    val total = Prefs.getTotalPages(f.absolutePath)
+                    if (total > 0) last.toFloat() / total else 0f
+                }
+                else -> list
             }
-            else -> list
+        } else {
+            list.sortedBy { it.title.lowercase() }
         }
 
-        adapter.submit(list.map { LibraryItem.Local(it) })
+        adapter.submit(list)
 
         if (list.isEmpty() && sourceList.isNotEmpty()) {
             binding.emptyText.visibility = View.VISIBLE
@@ -517,10 +580,57 @@ class LibraryActivity : AppCompatActivity() {
     }
 
     private fun onItemLongClick(item: LibraryItem): Boolean {
-        if (item is LibraryItem.Local) {
-            onMangaLongClick(item.manga)
+        when (item) {
+            is LibraryItem.Local -> onMangaLongClick(item.manga)
+            is LibraryItem.Online -> onOnlineLongClick(item)
         }
         return true
+    }
+
+    private fun onOnlineLongClick(item: LibraryItem.Online) {
+        when {
+            item.isPrivate -> {
+                AlertDialog.Builder(this)
+                    .setTitle("¿Eliminar de la carpeta privada?")
+                    .setMessage("'${item.title}' se quitará de la carpeta privada.")
+                    .setPositiveButton("Eliminar") { _, _ ->
+                        (application as App).libraryRepository
+                            .removePrivateOnline(item.sourceId, item.url)
+                        enterPrivateMode()
+                        Toast.makeText(this, "Eliminado de la carpeta privada", Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton("Cancelar", null)
+                    .show()
+            }
+
+            currentTab == TAB_HISTORY -> {
+                AlertDialog.Builder(this)
+                    .setTitle("¿Eliminar del historial?")
+                    .setMessage("'${item.title}' desaparecerá del historial.")
+                    .setPositiveButton("Eliminar") { _, _ ->
+                        (application as App).libraryRepository
+                            .removeHistory(item.sourceId, item.url)
+                        loadTab()
+                        Toast.makeText(this, "Eliminado del historial", Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton("Cancelar", null)
+                    .show()
+            }
+
+            else -> {
+                AlertDialog.Builder(this)
+                    .setTitle("¿Quitar de favoritos?")
+                    .setMessage("'${item.title}' se quitará de tus favoritos.")
+                    .setPositiveButton("Quitar") { _, _ ->
+                        (application as App).libraryRepository
+                            .removeFavorite(item.sourceId, item.url)
+                        loadTab()
+                        Toast.makeText(this, "Quitado de favoritos", Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton("Cancelar", null)
+                    .show()
+            }
+        }
     }
 
     private fun openOnlineManga(item: LibraryItem.Online) {

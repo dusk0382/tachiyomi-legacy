@@ -5,6 +5,7 @@ import android.database.Cursor
 import net.spin.tachiyomi.legacy.data.model.ChapterRef
 import net.spin.tachiyomi.legacy.data.model.HistoryRef
 import net.spin.tachiyomi.legacy.data.model.MangaRef
+import net.spin.tachiyomi.legacy.data.model.PrivateRef
 import net.spin.tachiyomi.legacy.data.model.ProgressRef
 import net.spin.tachiyomi.legacy.data.model.SourceRef
 
@@ -267,8 +268,76 @@ class LibraryRepository(context: Context) {
         }
     }
 
+    fun removeHistory(sourceId: Long, url: String): Boolean {
+        return db.writableDatabase.delete(
+            AppDatabase.TBL_HISTORY,
+            "${HistoryTable.KEY_SOURCE_ID}=? AND ${HistoryTable.KEY_URL}=?",
+            arrayOf(sourceId.toString(), url),
+        ) > 0
+    }
+
     fun clearHistory() {
         db.writableDatabase.delete(AppDatabase.TBL_HISTORY, null, null)
+    }
+
+    // --- Carpeta privada (mangos online) ---
+
+    fun addPrivateOnline(manga: PrivateRef): Boolean {
+        val values = PrivateMangaTable.toContentValues(manga.sourceId, manga.url, manga.title).apply {
+            manga.thumbnailUrl?.let { put(PrivateMangaTable.KEY_THUMBNAIL_URL, it) }
+        }
+        return try {
+            db.writableDatabase.insertWithOnConflict(
+                AppDatabase.TBL_PRIVATE_MANGA,
+                null,
+                values,
+                android.database.sqlite.SQLiteDatabase.CONFLICT_IGNORE,
+            ) != -1L
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    fun removePrivateOnline(sourceId: Long, url: String): Boolean {
+        return db.writableDatabase.delete(
+            AppDatabase.TBL_PRIVATE_MANGA,
+            "${PrivateMangaTable.KEY_SOURCE_ID}=? AND ${PrivateMangaTable.KEY_URL}=?",
+            arrayOf(sourceId.toString(), url),
+        ) > 0
+    }
+
+    fun isPrivateOnline(sourceId: Long, url: String): Boolean {
+        return db.readableDatabase.rawQuery(
+            "SELECT 1 FROM ${AppDatabase.TBL_PRIVATE_MANGA} " +
+                "WHERE ${PrivateMangaTable.KEY_SOURCE_ID}=? AND ${PrivateMangaTable.KEY_URL}=? LIMIT 1",
+            arrayOf(sourceId.toString(), url),
+        ).use { it.moveToFirst() }
+    }
+
+    fun getPrivateOnline(): List<PrivateRef> {
+        return db.readableDatabase.query(
+            AppDatabase.TBL_PRIVATE_MANGA,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "${PrivateMangaTable.KEY_DATE_ADDED} DESC",
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(
+                        PrivateRef(
+                            sourceId = cursor.getLong(cursor.getColumnIndexOrThrow(PrivateMangaTable.KEY_SOURCE_ID)),
+                            url = cursor.getString(cursor.getColumnIndexOrThrow(PrivateMangaTable.KEY_URL)),
+                            title = cursor.getString(cursor.getColumnIndexOrThrow(PrivateMangaTable.KEY_TITLE)),
+                            thumbnailUrl = cursor.getStringOrNull(PrivateMangaTable.KEY_THUMBNAIL_URL),
+                            dateAdded = cursor.getLong(cursor.getColumnIndexOrThrow(PrivateMangaTable.KEY_DATE_ADDED)),
+                        ),
+                    )
+                }
+            }
+        }
     }
 
     // --- Progress ---
