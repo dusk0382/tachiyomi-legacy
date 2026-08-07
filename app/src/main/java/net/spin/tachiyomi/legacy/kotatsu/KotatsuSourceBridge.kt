@@ -59,7 +59,14 @@ class KotatsuSourceBridge(
     /** MangaPage por url, para poder resolver getImageUrl despues de getPageList. */
     private val pagesByUrl = ConcurrentHashMap<String, MangaPage>()
 
-    private val pageSize: Int = 24
+    /**
+     * Tamaño de página REAL del parser (cada fuente define el suyo: 10-30).
+     * Antes se usaba un valor fijo (24) y el Paginator interno del parser
+     * desalineaba el offset + `hasNext` moría en la 1ª página (~10-24 mangas).
+     */
+    @OptIn(org.koitharu.kotatsu.parsers.InternalParsersApi::class)
+    private val parserPageSize: Int
+        get() = (parser as? org.koitharu.kotatsu.parsers.core.PagedMangaParser)?.pageSize ?: 24
 
     // ---------------------------------------------------------------------
     // Mapeo de modelos
@@ -185,10 +192,13 @@ class KotatsuSourceBridge(
         }
 
     private suspend fun fetchPage(page: Int, block: suspend (Int) -> List<Manga>): MangasPage {
-        val offset = (page - 1) * pageSize
+        val size = parserPageSize
+        val offset = (page - 1) * size
         val items = block(offset)
-        val hasNext = items.size > pageSize
-        return MangasPage(items.take(pageSize).map { it.toSManga() }, hasNext)
+        // Página completa => probablemente hay más; vacía o corta => fin.
+        // (Una página exacta provoca una petición extra vacía y corta: igual que Kotatsu.)
+        val hasNext = items.isNotEmpty() && items.size >= size
+        return MangasPage(items.map { it.toSManga() }, hasNext)
     }
 
     override suspend fun getMangaUpdate(

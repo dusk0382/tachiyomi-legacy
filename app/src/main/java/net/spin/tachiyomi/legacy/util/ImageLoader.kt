@@ -21,13 +21,27 @@ import java.util.concurrent.Executors
 object ImageLoader {
 
     private val executor: ExecutorService = Executors.newFixedThreadPool(3)
-    private val cache = ConcurrentHashMap<String, Bitmap>()
+
+    /**
+     * Cache LRU limitado a ~1/8 de la memoria del proceso (en la tablet son
+     * ~1GB de RAM): con el scroll infinito del catálogo, un ConcurrentHashMap
+     * sin límite llenaba la memoria con cientos de portadas y la app moría.
+     */
+    private val cache = object : android.util.LruCache<String, Bitmap>(cacheBudgetBytes()) {
+        override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
+    }
+
     private val inFlight = ConcurrentHashMap<String, MutableList<ImageView>>()
 
     private var network: NetworkHelper? = null
 
     fun init(network: NetworkHelper) {
         this.network = network
+    }
+
+    private fun cacheBudgetBytes(): Int {
+        val maxMem = Runtime.getRuntime().maxMemory()
+        return (maxMem / 8).coerceIn(8L * 1024 * 1024, 64L * 1024 * 1024).toInt()
     }
 
     private fun request(url: String): Request {
@@ -60,7 +74,7 @@ object ImageLoader {
 
         if (placeholder != 0) imageView.setImageResource(placeholder)
 
-        cache[url]?.let {
+        cache.get(url)?.let {
             imageView.setImageBitmap(it)
             return
         }
@@ -74,7 +88,7 @@ object ImageLoader {
         executor.execute {
             val bitmap = fetch(url)
 
-            if (bitmap != null) cache[url] = bitmap
+            if (bitmap != null) cache.put(url, bitmap)
 
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 inFlight.remove(url)?.forEach { target ->
@@ -84,7 +98,7 @@ object ImageLoader {
         }
     }
 
-    fun getCached(url: String?): Bitmap? = url?.let { cache[it] }
+    fun getCached(url: String?): Bitmap? = url?.let { cache.get(it) }
 
     /**
      * Descarga (o sirve desde cache) una imagen y entrega el resultado en
@@ -97,7 +111,7 @@ object ImageLoader {
             return
         }
 
-        cache[url]?.let {
+        cache.get(url)?.let {
             onResult(it)
             return
         }
@@ -105,7 +119,7 @@ object ImageLoader {
         executor.execute {
             val bitmap = fetch(url)
 
-            if (bitmap != null) cache[url] = bitmap
+            if (bitmap != null) cache.put(url, bitmap)
 
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 onResult(bitmap)

@@ -14,14 +14,14 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import eu.kanade.tachiyomi.source.SourceManager
 import eu.kanade.tachiyomi.source.model.SManga
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import net.spin.tachiyomi.legacy.databinding.ActivityCatalogBinding
-import net.spin.tachiyomi.legacy.databinding.ItemMangaOnlineBinding
+import net.spin.tachiyomi.legacy.databinding.ItemMangaGridBinding
 import net.spin.tachiyomi.legacy.data.online.OnlineRepository
 import net.spin.tachiyomi.legacy.util.ImageLoader
 import org.koitharu.kotatsu.parsers.model.MangaTag
@@ -73,8 +73,18 @@ class CatalogActivity : AppCompatActivity() {
             }
             startActivity(intent)
         }
-        binding.recycler.layoutManager = LinearLayoutManager(this)
+        // Rejilla estilo Kotatsu: 3 columnas (más mangas por pantalla, scroll fluido).
+        val gridLayout = GridLayoutManager(this, GRID_COLUMNS)
+        // El footer de carga ocupa el ancho completo (span de 3 columnas).
+        gridLayout.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
+            override fun getSpanSize(position: Int): Int {
+                return if (adapter.getItemViewType(position) == TYPE_FOOTER) GRID_COLUMNS else 1
+            }
+        }
+        binding.recycler.layoutManager = gridLayout
         binding.recycler.adapter = adapter
+        binding.recycler.setHasFixedSize(false)
+        binding.recycler.itemAnimator = null
 
         binding.btnBack.setOnClickListener { finish() }
 
@@ -105,7 +115,12 @@ class CatalogActivity : AppCompatActivity() {
 
         binding.recycler.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-                if (!recyclerView.canScrollVertically(1)) {
+                // Precarga anticipada: pedir la siguiente página cuando quedan
+                // pocos items visibles (no esperar a tocar el fondo exacto).
+                val lm = recyclerView.layoutManager as? GridLayoutManager ?: return
+                val lastVisible = lm.findLastVisibleItemPosition()
+                val total = lm.itemCount
+                if (hasNext && !isLoading && lastVisible >= total - PREFETCH_DISTANCE) {
                     loadNextPage()
                 }
             }
@@ -217,8 +232,14 @@ class CatalogActivity : AppCompatActivity() {
     private fun loadPage(page: Int) {
         if (isLoading) return
         isLoading = true
-        binding.progressBar.visibility = View.VISIBLE
         binding.emptyText.visibility = View.GONE
+        // Spinner central solo en la primera carga; footer para las siguientes.
+        if (page == 1) {
+            binding.progressBar.visibility = View.VISIBLE
+        } else {
+            binding.progressBar.visibility = View.GONE
+            adapter.setFooterVisible(true)
+        }
 
         loadJob = lifecycleScope.launch {
             val result = OnlineRepository.getCatalog(
@@ -237,10 +258,14 @@ class CatalogActivity : AppCompatActivity() {
                 binding.emptyText.visibility =
                     if (adapter.itemCount == 0 && page == 1) View.VISIBLE else View.GONE
             }.onFailure {
+                // No bloquear el scroll: si una página falla, reintentar en el
+                // siguiente scroll (se resetea hasNext para poder volver a pedir).
+                hasNext = true
                 Toast.makeText(this@CatalogActivity, "Error: ${it.message}", Toast.LENGTH_SHORT).show()
             }
 
             isLoading = false
+            adapter.setFooterVisible(false)
             binding.progressBar.visibility = View.GONE
         }
     }
@@ -267,48 +292,79 @@ class CatalogActivity : AppCompatActivity() {
 
     inner class MangaAdapter(
         private val onClick: (SManga) -> Unit,
-    ) : RecyclerView.Adapter<MangaAdapter.VH>() {
+    ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
         private val items = mutableListOf<SManga>()
+        private var footerVisible = false
 
         fun setItems(newItems: List<SManga>) {
             items.clear()
             items.addAll(newItems)
+            footerVisible = false
             notifyDataSetChanged()
         }
 
         fun addItems(newItems: List<SManga>) {
             val start = items.size
             items.addAll(newItems)
+            // El footer se desplaza solo: los items nuevos se insertan ANTES de él
+            // (notifyItemRangeInserted mueve el footer hacia abajo correctamente).
             notifyItemRangeInserted(start, newItems.size)
         }
 
         fun clear() {
             items.clear()
+            footerVisible = false
             notifyDataSetChanged()
         }
 
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
-            val b = ItemMangaOnlineBinding.inflate(LayoutInflater.from(parent.context), parent, false)
+        fun setFooterVisible(visible: Boolean) {
+            if (footerVisible == visible) return
+            val hadFooter = footerVisible
+            footerVisible = visible
+            if (hadFooter && !visible) {
+                notifyItemRemoved(items.size)
+            } else {
+                notifyItemInserted(items.size)
+            }
+        }
+
+        override fun getItemViewType(position: Int): Int {
+            return if (footerVisible && position == items.size) TYPE_FOOTER else TYPE_ITEM
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+            val inflater = LayoutInflater.from(parent.context)
+            if (viewType == TYPE_FOOTER) {
+                return FooterVH(inflater.inflate(R.layout.item_loading_footer, parent, false))
+            }
+            val b = ItemMangaGridBinding.inflate(inflater, parent, false)
             return VH(b)
         }
 
-        override fun onBindViewHolder(holder: VH, position: Int) {
-            holder.bind(items[position])
+        override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+            if (holder is VH) {
+                holder.bind(items[position])
+            }
         }
 
-        override fun getItemCount() = items.size
+        override fun getItemCount() = items.size + if (footerVisible) 1 else 0
 
-        inner class VH(private val b: ItemMangaOnlineBinding) : RecyclerView.ViewHolder(b.root) {
+        inner class VH(private val b: ItemMangaGridBinding) : RecyclerView.ViewHolder(b.root) {
             fun bind(manga: SManga) {
                 b.title.text = manga.title
-                b.subtitle.text = manga.author
-                    ?.takeIf { it.isNotBlank() }
-                    ?: manga.description?.takeIf { it.isNotBlank() }?.take(60)
-                    ?: ""
                 ImageLoader.load(manga.thumbnail_url, b.cover)
                 b.root.setOnClickListener { onClick(manga) }
             }
         }
+
+        inner class FooterVH(view: View) : RecyclerView.ViewHolder(view)
+    }
+
+    companion object {
+        private const val GRID_COLUMNS = 3
+        private const val PREFETCH_DISTANCE = 8
+        private const val TYPE_ITEM = 0
+        private const val TYPE_FOOTER = 1
     }
 }
