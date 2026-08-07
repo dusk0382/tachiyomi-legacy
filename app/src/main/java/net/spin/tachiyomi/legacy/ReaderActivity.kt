@@ -21,10 +21,18 @@ class ReaderActivity : AppCompatActivity(), ZoomableImageView.OnTapListener {
         const val EXTRA_CHAPTER_NAME = "chapter_name"
         const val EXTRA_MANGA_URL = "manga_url"
         const val EXTRA_MANGA_TITLE = "manga_title"
+        const val EXTRA_CHAPTER_URLS = "chapter_urls"
+        const val EXTRA_CHAPTER_NAMES = "chapter_names"
+        const val EXTRA_SCREEN_W = "screen_w"
+        const val EXTRA_SCREEN_H = "screen_h"
     }
 
     private lateinit var binding: ActivityReaderBinding
     private lateinit var viewModel: ReaderViewModel
+
+    private var chapterUrls: List<String> = emptyList()
+    private var chapterNames: List<String> = emptyList()
+    private var currentChapterIndex = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,6 +57,11 @@ class ReaderActivity : AppCompatActivity(), ZoomableImageView.OnTapListener {
         val sourceId = intent.getLongExtra(EXTRA_SOURCE_ID, -1L)
         val chapterUrl = intent.getStringExtra(EXTRA_CHAPTER_URL)
 
+        chapterUrls = intent.getStringArrayListExtra(EXTRA_CHAPTER_URLS) ?: emptyList()
+        chapterNames = intent.getStringArrayListExtra(EXTRA_CHAPTER_NAMES) ?: emptyList()
+        currentChapterIndex = chapterUrls.indexOfFirst { it == chapterUrl }
+            .takeIf { it >= 0 } ?: 0
+
         when {
             path != null -> viewModel.initLocal(path, screenWidth, screenHeight)
             sourceId > 0 && !chapterUrl.isNullOrBlank() -> {
@@ -70,6 +83,9 @@ class ReaderActivity : AppCompatActivity(), ZoomableImageView.OnTapListener {
         applyReadingDirection()
 
         binding.directionButton.setOnClickListener { showDirectionDialog() }
+
+        binding.prevChapterButton.setOnClickListener { goToChapter(currentChapterIndex - 1) }
+        binding.nextChapterButton.setOnClickListener { goToChapter(currentChapterIndex + 1) }
 
         viewModel.pageCount.observe(this) { count ->
             adapter.notifyDataSetChanged()
@@ -104,6 +120,51 @@ class ReaderActivity : AppCompatActivity(), ZoomableImageView.OnTapListener {
 
     private fun updatePageInfo(current: Int, total: Int) {
         binding.pageInfo.text = getString(R.string.page_format, current + 1, total)
+        updateChapterInfo()
+    }
+
+    private fun updateChapterInfo() {
+        val name = chapterNames.getOrNull(currentChapterIndex) ?: ""
+        binding.chapterInfo.text = name
+        binding.prevChapterButton.isEnabled = currentChapterIndex > 0
+        binding.nextChapterButton.isEnabled = currentChapterIndex < chapterUrls.size - 1
+        binding.prevChapterButton.alpha = if (currentChapterIndex > 0) 1f else 0.4f
+        binding.nextChapterButton.alpha = if (currentChapterIndex < chapterUrls.size - 1) 1f else 0.4f
+    }
+
+    /** Cambia al capitulo [index] de la lista (si existe y es valido). */
+    private fun goToChapter(index: Int) {
+        if (index < 0 || index >= chapterUrls.size) return
+        val url = chapterUrls[index]
+        val name = chapterNames.getOrNull(index) ?: url
+
+        // Actualizar el historial del capitulo ANTERIOR antes de cambiar el indice.
+        updateHistoryProgress()
+
+        currentChapterIndex = index
+
+        viewModel.switchChapter(
+            intent.getLongExtra(EXTRA_SOURCE_ID, -1L),
+            url,
+            name,
+            screenW(),
+            screenH(),
+        )
+        updateChapterInfo()
+    }
+
+    private fun screenW(): Int {
+        val dm = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        windowManager.defaultDisplay.getMetrics(dm)
+        return dm.widthPixels
+    }
+
+    private fun screenH(): Int {
+        val dm = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        windowManager.defaultDisplay.getMetrics(dm)
+        return dm.heightPixels
     }
 
     override fun onTapLeft() {
@@ -196,9 +257,9 @@ class ReaderActivity : AppCompatActivity(), ZoomableImageView.OnTapListener {
     /** Registra el progreso del ultimo capitulo leido en el historial online. */
     private fun updateHistoryProgress() {
         val sourceId = intent.getLongExtra(EXTRA_SOURCE_ID, -1L)
-        val chapterUrl = intent.getStringExtra(EXTRA_CHAPTER_URL)
-        val mangaUrl = intent.getStringExtra(EXTRA_MANGA_URL)
-        if (sourceId <= 0 || chapterUrl.isNullOrBlank() || mangaUrl.isNullOrBlank()) return
+        val chapterUrl = chapterUrls.getOrNull(currentChapterIndex) ?: return
+        val mangaUrl = intent.getStringExtra(EXTRA_MANGA_URL) ?: return
+        if (sourceId <= 0 || chapterUrl.isBlank() || mangaUrl.isBlank()) return
 
         // No escribir progreso basura si el lector aun no termino de inicializar.
         if (viewModel.isReady.value != true) return
@@ -210,7 +271,7 @@ class ReaderActivity : AppCompatActivity(), ZoomableImageView.OnTapListener {
             sourceId = sourceId,
             mangaUrl = mangaUrl,
             chapterUrl = chapterUrl,
-            chapterName = intent.getStringExtra(EXTRA_CHAPTER_NAME),
+            chapterName = chapterNames.getOrNull(currentChapterIndex),
             pageIndex = page,
             totalPages = total,
         )

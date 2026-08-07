@@ -117,6 +117,52 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
         if (reader != null || initializing) return
 
+        startOnline(sourceId, chapterUrl, chapterName)
+    }
+
+    /**
+     * Cambia al capitulo indicado: guarda el progreso actual, cierra el reader
+     * anterior y carga el nuevo capitulo desde cero.
+     */
+    fun switchChapter(
+        sourceId: Long,
+        chapterUrl: String,
+        chapterName: String,
+        screenWidth: Int,
+        screenHeight: Int,
+    ) {
+        this.screenWidth = screenWidth
+        this.screenHeight = screenHeight
+
+        scope.launch {
+            // Guardar progreso del capitulo anterior.
+            _currentPage.value?.let { page ->
+                progressKey?.let { Prefs.setLastPage(it, page) }
+            }
+
+            // Cerrar el reader anterior y resetear estado.
+            try {
+                reader?.close()
+            } catch (_: Exception) {
+            }
+            reader = null
+            cache.clear()
+            releaseHighRes()
+            activeRequests.clear()
+
+            _currentPage.postValue(0)
+            _pageCount.postValue(0)
+            _isReady.postValue(false)
+
+            startOnline(sourceId, chapterUrl, chapterName)
+        }
+    }
+
+    private fun startOnline(sourceId: Long, chapterUrl: String, chapterName: String) {
+        val key = "${sourceId}_$chapterUrl"
+        this.progressKey = key
+
+        if (initializing) return
         initializing = true
 
         scope.launch {

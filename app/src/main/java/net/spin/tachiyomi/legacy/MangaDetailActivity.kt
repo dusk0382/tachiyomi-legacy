@@ -39,6 +39,8 @@ class MangaDetailActivity : AppCompatActivity() {
     private var manga: SManga? = null
     private var isFavorite = false
 
+    private var chapters: List<SChapter> = emptyList()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMangaDetailBinding.inflate(layoutInflater)
@@ -142,6 +144,7 @@ class MangaDetailActivity : AppCompatActivity() {
     private fun renderChapters(chapters: List<SChapter>) {
         binding.chaptersProgress.visibility = View.GONE
         binding.chaptersContainer.removeAllViews()
+        this.chapters = chapters
 
         // Persist the chapter list for later offline/progress use.
         repository.upsertChapters(
@@ -161,13 +164,33 @@ class MangaDetailActivity : AppCompatActivity() {
         chapters.forEach { chapter ->
             binding.chaptersContainer.addView(chapterRow(chapter))
         }
+
+        // Si venimos del historial, abrir directamente el capitulo donde se dejo.
+        val openChapterUrl = intent.getStringExtra("open_chapter_url")
+        if (!openChapterUrl.isNullOrBlank()) {
+            val target = chapters.firstOrNull { it.url == openChapterUrl }
+            if (target != null) {
+                binding.chaptersContainer.post {
+                    openReader(target)
+                }
+            }
+        }
     }
 
     private fun chapterRow(chapter: SChapter): View {
+        val openChapterUrl = intent.getStringExtra("open_chapter_url")
+        val isCurrent = !openChapterUrl.isNullOrBlank() && chapter.url == openChapterUrl
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(12, 10, 12, 10)
-            background = androidx.core.content.ContextCompat.getDrawable(this@MangaDetailActivity, android.R.drawable.list_selector_background)
+            background = if (isCurrent) {
+                androidx.core.content.ContextCompat.getDrawable(
+                    this@MangaDetailActivity,
+                    R.drawable.item_current_chapter,
+                )
+            } else {
+                androidx.core.content.ContextCompat.getDrawable(this@MangaDetailActivity, android.R.drawable.list_selector_background)
+            }
         }
         row.addView(TextView(this).apply {
             text = chapter.name
@@ -198,6 +221,14 @@ class MangaDetailActivity : AppCompatActivity() {
             putExtra(ReaderActivity.EXTRA_CHAPTER_NAME, chapter.name)
             putExtra(ReaderActivity.EXTRA_MANGA_URL, mangaUrl)
             putExtra(ReaderActivity.EXTRA_MANGA_TITLE, mangaTitle)
+            putExtra(
+                ReaderActivity.EXTRA_CHAPTER_URLS,
+                ArrayList(chapters.map { it.url }),
+            )
+            putExtra(
+                ReaderActivity.EXTRA_CHAPTER_NAMES,
+                ArrayList(chapters.map { it.name }),
+            )
         }
         startActivity(intent)
     }

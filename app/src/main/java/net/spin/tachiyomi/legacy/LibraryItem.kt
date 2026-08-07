@@ -12,7 +12,7 @@ sealed class LibraryItem {
         override val title: String get() = manga.title
     }
 
-    /** Manga online (favorito o historial). */
+    /** Manga online (favorito o del historial). */
     data class Online(
         val sourceId: Long,
         val url: String,
@@ -20,5 +20,9 @@ sealed class LibraryItem {
         val thumbnailUrl: String? = null,
         val subtitle: String? = null,
         val readPercent: Float = 0f,
+        val isHistory: Boolean = false,
+        val lastChapterUrl: String? = null,
+        val lastChapterName: String? = null,
+        val lastPageIndex: Int = 0,
     ) : LibraryItem()
 }
