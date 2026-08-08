@@ -10,8 +10,9 @@ import java.io.File
 /**
  * Base for readers whose pages are backed by image files on disk.
  * Holds the OOM-safe decode pipeline shared by CBZ archives and online chapters:
- * pages are materialized to [diskCacheDir] and decoded with RGB_565 + inSampleSize,
- * with graceful fallbacks for region decoding and OutOfMemoryError.
+ * pages are materialized to [diskCacheDir] and decoded with full color
+ * (ARGB_8888) + inSampleSize, with graceful fallbacks for region decoding and
+ * OutOfMemoryError.
  */
 abstract class FileBackedPageReader : PageReader {
 
@@ -69,7 +70,6 @@ abstract class FileBackedPageReader : PageReader {
                 val opts = BitmapFactory.Options().apply {
                     inJustDecodeBounds = false
                     inSampleSize = sample
-                    inPreferredConfig = Bitmap.Config.RGB_565
                     inMutable = false
                 }
                 decoder.decodeRegion(region, opts)
@@ -136,8 +136,6 @@ abstract class FileBackedPageReader : PageReader {
         val opts = BitmapFactory.Options().apply {
             inJustDecodeBounds = false
             inSampleSize = sample
-            inPreferredConfig = Bitmap.Config.RGB_565
-            inDither = false
             inMutable = false
         }
         return BitmapFactory.decodeFile(imageFile.absolutePath, opts)
@@ -195,7 +193,7 @@ abstract class FileBackedPageReader : PageReader {
         if (cw > targetWidth.coerceAtLeast(1) * 2 || ch > targetHeight.coerceAtLeast(1) * 2) {
             val subSample = calculateInSampleSize(cw, ch, targetWidth, targetHeight)
             if (subSample > 1) {
-                val scaled = cropped.copy(Bitmap.Config.RGB_565, false)
+                val scaled = cropped.copy(Bitmap.Config.ARGB_8888, false)
                 cropped.recycle()
                 val out = Bitmap.createScaledBitmap(
                     scaled,

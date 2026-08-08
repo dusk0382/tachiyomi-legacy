@@ -55,6 +55,6 @@ class App : Application() {
         // (historial/favoritos) y el detalle las necesitan sin pasar por Explorar.
         KotatsuSourceManager.init(networkHelper)
         KotatsuSourceManager.registerAll()
-        ImageLoader.init(networkHelper)
+        ImageLoader.init(this, networkHelper)
     }
 }

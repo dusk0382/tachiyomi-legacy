@@ -12,7 +12,7 @@ interface PageReader : AutoCloseable {
 
     val pageCount: Int
 
-    /** Decodes the page fitted to the given screen size, using RGB_565. */
+    /** Decodes the page fitted to the given screen size, in full color. */
     suspend fun decodePage(pageIndex: Int, screenWidth: Int, screenHeight: Int): Bitmap?
 
     /** Original dimensions of the page without decoding it fully. */

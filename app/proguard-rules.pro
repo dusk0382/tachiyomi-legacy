@@ -32,6 +32,15 @@
 # --- ViewBinding / DataBinding ---
 -keep class net.spin.tachiyomi.legacy.databinding.** { *; }
 
+# --- Logs: eliminar v/d/i en release (el lector loguea por pagina; R8 no
+#     los quita por defecto y cada llamada concatena strings + escribe logcat).
+#     Se conservan w/e (errores reales). ---
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+}
+
 # --- coroutines ---
 -dontwarn kotlinx.coroutines.**
 -keepnames class kotlinx.coroutines.internal.MainDispatcherFactory { *; }

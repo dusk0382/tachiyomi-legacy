@@ -116,7 +116,6 @@ object ThumbnailManager {
                 val decodeOpts = BitmapFactory.Options().apply {
                     inJustDecodeBounds = false
                     inSampleSize = sample
-                    inPreferredConfig = Bitmap.Config.RGB_565
                     inMutable = false
                 }
 
@@ -130,8 +129,9 @@ object ThumbnailManager {
                 val cropped = centerCrop(bitmap, THUMB_WIDTH, THUMB_HEIGHT)
 
                 try {
+                    // JPEG 95: prácticamente sin pérdida visible a este tamaño.
                     FileOutputStream(thumbFile).use { out ->
-                        cropped.compress(Bitmap.CompressFormat.JPEG, 80, out)
+                        cropped.compress(Bitmap.CompressFormat.JPEG, 95, out)
                     }
                     cropped.recycle()
                     trimCache()

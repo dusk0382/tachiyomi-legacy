@@ -5,7 +5,6 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
@@ -195,15 +194,26 @@ class LibraryActivity : AppCompatActivity() {
             }
             TAB_FAVORITES -> {
                 adapter.clear()
-                val favorites = (application as App).libraryRepository.getFavorites()
-                allMangas = emptyList()
-                renderOnlineItems(favorites.map { it.toOnlineItem() })
+                // La query va a disco (SQLite): no bloquear el hilo principal.
+                executor.execute {
+                    val favorites = (application as App).libraryRepository.getFavorites()
+                    runOnUiThread {
+                        if (isDestroyed) return@runOnUiThread
+                        allMangas = emptyList()
+                        renderOnlineItems(favorites.map { it.toOnlineItem() })
+                    }
+                }
             }
             TAB_HISTORY -> {
                 adapter.clear()
-                val history = (application as App).libraryRepository.getHistory()
-                allMangas = emptyList()
-                renderOnlineItems(history.map { it.toOnlineItem() })
+                executor.execute {
+                    val history = (application as App).libraryRepository.getHistory()
+                    runOnUiThread {
+                        if (isDestroyed) return@runOnUiThread
+                        allMangas = emptyList()
+                        renderOnlineItems(history.map { it.toOnlineItem() })
+                    }
+                }
             }
         }
     }
@@ -1207,12 +1217,9 @@ class LibraryActivity : AppCompatActivity() {
             private fun loadThumb(file: File) {
                 coverLoader.visibility = View.GONE
 
-                val opts = BitmapFactory.Options().apply {
-                    inPreferredConfig = Bitmap.Config.RGB_565
-                    inMutable = false
-                }
-
-                val bmp = BitmapFactory.decodeFile(file.absolutePath, opts)
+                // Color completo (ARGB_8888): las miniaturas son pequeñas pero
+                // no hay razón para recortar profundidad de color.
+                val bmp = BitmapFactory.decodeFile(file.absolutePath)
 
                 if (bmp != null && !bmp.isRecycled) {
                     cover.setImageBitmap(bmp)
