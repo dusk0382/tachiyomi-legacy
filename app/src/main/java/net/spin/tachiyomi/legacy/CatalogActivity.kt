@@ -83,7 +83,9 @@ class CatalogActivity : AppCompatActivity() {
         }
         binding.recycler.layoutManager = gridLayout
         binding.recycler.adapter = adapter
-        binding.recycler.setHasFixedSize(false)
+        // El RecyclerView nunca cambia de tamaño (solo cambia el nº de items),
+        // asi que evita re-layouts innecesarios durante el scroll.
+        binding.recycler.setHasFixedSize(true)
         binding.recycler.itemAnimator = null
 
         binding.btnBack.setOnClickListener { finish() }
@@ -353,7 +355,9 @@ class CatalogActivity : AppCompatActivity() {
         inner class VH(private val b: ItemMangaGridBinding) : RecyclerView.ViewHolder(b.root) {
             fun bind(manga: SManga) {
                 b.title.text = manga.title
-                ImageLoader.load(manga.thumbnail_url, b.cover)
+                // maxEdgePx=384: la portada se muestra a ~185px (columna de 600/3),
+                // decodificar a 384px es 2x nítido y 4-16x más ligero que el original.
+                ImageLoader.load(manga.thumbnail_url, b.cover, maxEdgePx = GRID_COVER_MAX_EDGE)
                 b.root.setOnClickListener { onClick(manga) }
             }
         }
@@ -366,5 +370,7 @@ class CatalogActivity : AppCompatActivity() {
         private const val PREFETCH_DISTANCE = 8
         private const val TYPE_ITEM = 0
         private const val TYPE_FOOTER = 1
+        /** Tamaño de decodificación de portadas en la rejilla (ver ImageLoader). */
+        private const val GRID_COVER_MAX_EDGE = 384
     }
 }

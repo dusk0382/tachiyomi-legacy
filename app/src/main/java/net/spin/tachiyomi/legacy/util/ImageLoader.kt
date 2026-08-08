@@ -20,6 +20,13 @@ import java.util.concurrent.Executors
  */
 object ImageLoader {
 
+    /**
+     * Tamaño máximo de decodificación por defecto. Las portadas se muestran
+     * a ~100-200px en la rejilla, asi que decodificar a 512px sobra de sobra
+     * y evita cargar bitmaps de 6MB+ por portada (RAM de 1GB + Snapdragon 210).
+     */
+    private const val DEFAULT_MAX_EDGE = 512
+
     private val executor: ExecutorService = Executors.newFixedThreadPool(3)
 
     /**
@@ -44,6 +51,9 @@ object ImageLoader {
         return (maxMem / 8).coerceIn(8L * 1024 * 1024, 64L * 1024 * 1024).toInt()
     }
 
+    /** La cache se keyea por URL+tamaño: rejilla (384) y detalle (512) no se mezclan. */
+    private fun cacheKey(url: String, maxEdge: Int) = "$url@$maxEdge"
+
     private fun request(url: String): Request {
         val builder = Request.Builder().url(url)
             .header("User-Agent", KotatsuLoaderContext.DEFAULT_USER_AGENT)
@@ -54,19 +64,43 @@ object ImageLoader {
         return builder.build()
     }
 
-    private fun fetch(url: String): Bitmap? = try {
+    private fun fetch(url: String, maxEdge: Int): Bitmap? = try {
         network?.let { net ->
             val response = net.client.newCall(request(url)).execute()
             response.use { resp ->
                 if (!resp.isSuccessful) null
-                else BitmapFactory.decodeStream(resp.body.byteStream())
+                else resp.body.byteStream().use { stream ->
+                    decodeSampled(stream.readBytes(), maxEdge)
+                }
             }
         }
     } catch (_: Exception) {
         null
     }
 
-    fun load(url: String?, imageView: ImageView, placeholder: Int = 0) {
+    /**
+     * Decodifica con [inSampleSize] para que el bitmap resultante no supere
+     * [maxEdge] px por lado: las portadas de las fuentes llegan a 800-2000px
+     * y se muestran a ~185px en la rejilla; decodificarlas enteras ocupaba
+     * MBs de RAM cada una y hacía el scroll lento (Snapdragon 210 + 1GB RAM).
+     */
+    private fun decodeSampled(bytes: ByteArray, maxEdge: Int): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        }
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= maxEdge &&
+            bounds.outHeight / (sample * 2) >= maxEdge
+        ) {
+            sample *= 2
+        }
+        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+    }
+
+    fun load(url: String?, imageView: ImageView, placeholder: Int = 0, maxEdgePx: Int = DEFAULT_MAX_EDGE) {
         // Marcar qué URL espera esta vista AHORA: si el RecyclerView la recicla
         // para otro manga mientras descargamos, el tag cambia y al completar se
         // descarta el bitmap viejo (sin esto las portadas "saltaban" de arriba
@@ -78,7 +112,8 @@ object ImageLoader {
             return
         }
 
-        cache.get(url)?.let {
+        val key = cacheKey(url, maxEdgePx)
+        cache.get(key)?.let {
             imageView.setImageBitmap(it)
             return
         }
@@ -87,19 +122,19 @@ object ImageLoader {
         // mientras llega la nueva (el fondo gris del layout hace de placeholder).
         if (placeholder != 0) imageView.setImageResource(placeholder) else imageView.setImageDrawable(null)
 
-        val waiters = inFlight.getOrPut(url) { mutableListOf() }
+        val waiters = inFlight.getOrPut(key) { mutableListOf() }
         waiters.add(imageView)
 
         // Only the first caller enqueues the fetch
         if (waiters.size > 1) return
 
         executor.execute {
-            val bitmap = fetch(url)
+            val bitmap = fetch(url, maxEdgePx)
 
-            if (bitmap != null) cache.put(url, bitmap)
+            if (bitmap != null) cache.put(key, bitmap)
 
             android.os.Handler(android.os.Looper.getMainLooper()).post {
-                inFlight.remove(url)?.forEach { target ->
+                inFlight.remove(key)?.forEach { target ->
                     // Solo aplicar el bitmap si esta vista sigue esperando ESTA url.
                     if (bitmap != null && target.tag == url) {
                         target.setImageBitmap(bitmap)
@@ -109,28 +144,32 @@ object ImageLoader {
         }
     }
 
-    fun getCached(url: String?): Bitmap? = url?.let { cache.get(it) }
+    fun getCached(url: String?, maxEdgePx: Int = DEFAULT_MAX_EDGE): Bitmap? =
+        url?.let { cache.get(cacheKey(it, maxEdgePx)) }
 
     /**
      * Descarga (o sirve desde cache) una imagen y entrega el resultado en
      * [onResult] desde el hilo principal. Util para callers que necesitan
      * saber cuándo termina (p. ej. para ocultar un ProgressBar).
      */
-    fun load(url: String?, onResult: (Bitmap?) -> Unit) {
+    // maxEdgePx va ANTES del lambda: Kotlin enlaza el lambda final al ultimo
+    // parametro, y si el ultimo fuera Int fallaria la llamada loadBitmap(url) {}.
+    fun loadBitmap(url: String?, maxEdgePx: Int = DEFAULT_MAX_EDGE, onResult: (Bitmap?) -> Unit) {
         if (url.isNullOrBlank()) {
             onResult(null)
             return
         }
 
-        cache.get(url)?.let {
+        val key = cacheKey(url, maxEdgePx)
+        cache.get(key)?.let {
             onResult(it)
             return
         }
 
         executor.execute {
-            val bitmap = fetch(url)
+            val bitmap = fetch(url, maxEdgePx)
 
-            if (bitmap != null) cache.put(url, bitmap)
+            if (bitmap != null) cache.put(key, bitmap)
 
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 onResult(bitmap)

@@ -1182,7 +1182,7 @@ class LibraryActivity : AppCompatActivity() {
                 }
 
                 item.thumbnailUrl?.let { url ->
-                    ImageLoader.load(url) { bmp ->
+                    ImageLoader.loadBitmap(url) { bmp ->
                         cover.post {
                             if (bindingAdapterPosition == RecyclerView.NO_POSITION) return@post
                             if (cover.tag != item.url) return@post
