@@ -67,17 +67,25 @@ object ImageLoader {
     }
 
     fun load(url: String?, imageView: ImageView, placeholder: Int = 0) {
+        // Marcar qué URL espera esta vista AHORA: si el RecyclerView la recicla
+        // para otro manga mientras descargamos, el tag cambia y al completar se
+        // descarta el bitmap viejo (sin esto las portadas "saltaban" de arriba
+        // a abajo al scrollear).
+        imageView.tag = url
+
         if (url.isNullOrBlank()) {
-            if (placeholder != 0) imageView.setImageResource(placeholder)
+            if (placeholder != 0) imageView.setImageResource(placeholder) else imageView.setImageDrawable(null)
             return
         }
-
-        if (placeholder != 0) imageView.setImageResource(placeholder)
 
         cache.get(url)?.let {
             imageView.setImageBitmap(it)
             return
         }
+
+        // Limpiar de inmediato: nunca mostrar la portada del ítem anterior
+        // mientras llega la nueva (el fondo gris del layout hace de placeholder).
+        if (placeholder != 0) imageView.setImageResource(placeholder) else imageView.setImageDrawable(null)
 
         val waiters = inFlight.getOrPut(url) { mutableListOf() }
         waiters.add(imageView)
@@ -92,7 +100,10 @@ object ImageLoader {
 
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 inFlight.remove(url)?.forEach { target ->
-                    if (bitmap != null) target.setImageBitmap(bitmap)
+                    // Solo aplicar el bitmap si esta vista sigue esperando ESTA url.
+                    if (bitmap != null && target.tag == url) {
+                        target.setImageBitmap(bitmap)
+                    }
                 }
             }
         }
