@@ -17,8 +17,8 @@ object MangaScanner {
         roots.add(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS))
         roots.add(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS))
 
-        // Descargas de la app (MangaLite): aparecen en la pestaña Local.
-        roots.add(MangaDownloader.rootDir())
+        // NOTA: las descargas de la app (carpeta MangaLite) NO se escanean aqui:
+        // tienen su propia pestaña "Descargas" (ver scanDir, que las salta).
 
         // Volumenes de almacenamiento del sistema (incluye la tarjeta SD externa).
         roots.addAll(storageVolumeRoots(context))
@@ -136,6 +136,11 @@ object MangaScanner {
         if (!dir.canRead() || depth > maxDepth) return
 
         if (dir.name.startsWith(".") || dir.name.equals("Android", ignoreCase = true)) {
+            return
+        }
+
+        // Las descargas de la app viven en su pestaña propia, no en Local.
+        if (dir.name.equals("MangaLite", ignoreCase = true)) {
             return
         }
 

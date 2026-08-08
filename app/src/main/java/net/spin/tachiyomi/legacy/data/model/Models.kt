@@ -74,3 +74,16 @@ data class PrivateRef(
 ) {
     val key: String get() = "$sourceId:$url"
 }
+
+/** Manga online con capítulos descargados (para la pestaña Descargas). */
+data class DownloadRef(
+    val sourceId: Long,
+    val url: String,
+    val title: String,
+    val thumbnailUrl: String? = null,
+    val description: String? = null,
+    val author: String? = null,
+    val dateAdded: Long = System.currentTimeMillis(),
+) {
+    val key: String get() = "$sourceId:$url"
+}

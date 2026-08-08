@@ -3,6 +3,7 @@ package net.spin.tachiyomi.legacy.data.db
 import android.content.Context
 import android.database.Cursor
 import net.spin.tachiyomi.legacy.data.model.ChapterRef
+import net.spin.tachiyomi.legacy.data.model.DownloadRef
 import net.spin.tachiyomi.legacy.data.model.HistoryRef
 import net.spin.tachiyomi.legacy.data.model.MangaRef
 import net.spin.tachiyomi.legacy.data.model.PrivateRef
@@ -333,6 +334,82 @@ class LibraryRepository(context: Context) {
                             title = cursor.getString(cursor.getColumnIndexOrThrow(PrivateMangaTable.KEY_TITLE)),
                             thumbnailUrl = cursor.getStringOrNull(PrivateMangaTable.KEY_THUMBNAIL_URL),
                             dateAdded = cursor.getLong(cursor.getColumnIndexOrThrow(PrivateMangaTable.KEY_DATE_ADDED)),
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    // --- Descargas (mangas con capitulos descargados) ---
+
+    fun addDownloadManga(manga: DownloadRef) {
+        val values = DownloadMangaTable.toContentValues(manga.sourceId, manga.url, manga.title).apply {
+            manga.thumbnailUrl?.let { put(DownloadMangaTable.KEY_THUMBNAIL_URL, it) }
+            manga.description?.let { put(DownloadMangaTable.KEY_DESCRIPTION, it) }
+            manga.author?.let { put(DownloadMangaTable.KEY_AUTHOR, it) }
+        }
+        db.writableDatabase.insertWithOnConflict(
+            AppDatabase.TBL_MANGA_DOWNLOADS,
+            null,
+            values,
+            android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE,
+        )
+    }
+
+    fun getDownload(sourceId: Long, url: String): DownloadRef? {
+        return db.readableDatabase.query(
+            AppDatabase.TBL_MANGA_DOWNLOADS,
+            null,
+            "${DownloadMangaTable.KEY_SOURCE_ID}=? AND ${DownloadMangaTable.KEY_URL}=?",
+            arrayOf(sourceId.toString(), url),
+            null,
+            null,
+            null,
+        ).use { cursor ->
+            if (cursor.moveToFirst()) {
+                DownloadRef(
+                    sourceId = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadMangaTable.KEY_SOURCE_ID)),
+                    url = cursor.getString(cursor.getColumnIndexOrThrow(DownloadMangaTable.KEY_URL)),
+                    title = cursor.getString(cursor.getColumnIndexOrThrow(DownloadMangaTable.KEY_TITLE)),
+                    thumbnailUrl = cursor.getStringOrNull(DownloadMangaTable.KEY_THUMBNAIL_URL),
+                    description = cursor.getStringOrNull(DownloadMangaTable.KEY_DESCRIPTION),
+                    author = cursor.getStringOrNull(DownloadMangaTable.KEY_AUTHOR),
+                    dateAdded = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadMangaTable.KEY_DOWNLOADED_AT)),
+                )
+            } else {
+                null
+            }
+        }
+    }
+
+    fun removeDownloadManga(sourceId: Long, url: String): Boolean {
+        return db.writableDatabase.delete(
+            AppDatabase.TBL_MANGA_DOWNLOADS,
+            "${DownloadMangaTable.KEY_SOURCE_ID}=? AND ${DownloadMangaTable.KEY_URL}=?",
+            arrayOf(sourceId.toString(), url),
+        ) > 0
+    }
+
+    fun getDownloads(): List<DownloadRef> {
+        return db.readableDatabase.query(
+            AppDatabase.TBL_MANGA_DOWNLOADS,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "${DownloadMangaTable.KEY_DOWNLOADED_AT} DESC",
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(
+                        DownloadRef(
+                            sourceId = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadMangaTable.KEY_SOURCE_ID)),
+                            url = cursor.getString(cursor.getColumnIndexOrThrow(DownloadMangaTable.KEY_URL)),
+                            title = cursor.getString(cursor.getColumnIndexOrThrow(DownloadMangaTable.KEY_TITLE)),
+                            thumbnailUrl = cursor.getStringOrNull(DownloadMangaTable.KEY_THUMBNAIL_URL),
+                            dateAdded = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadMangaTable.KEY_DOWNLOADED_AT)),
                         ),
                     )
                 }

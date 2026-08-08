@@ -158,6 +158,7 @@ class LibraryActivity : AppCompatActivity() {
         binding.tabLocal.setOnClickListener { switchTab(TAB_LOCAL) }
         binding.tabFavorites.setOnClickListener { switchTab(TAB_FAVORITES) }
         binding.tabHistory.setOnClickListener { switchTab(TAB_HISTORY) }
+        binding.tabDownloads.setOnClickListener { switchTab(TAB_DOWNLOADS) }
         updateTabStyles()
     }
 
@@ -185,6 +186,10 @@ class LibraryActivity : AppCompatActivity() {
             ContextCompat.getColor(this, if (currentTab == TAB_HISTORY) R.color.text_primary else R.color.text_secondary)
         )
         binding.tabHistory.setTypeface(null, if (currentTab == TAB_HISTORY) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+        binding.tabDownloads.setTextColor(
+            ContextCompat.getColor(this, if (currentTab == TAB_DOWNLOADS) R.color.text_primary else R.color.text_secondary)
+        )
+        binding.tabDownloads.setTypeface(null, if (currentTab == TAB_DOWNLOADS) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
     }
 
     private fun loadTab() {
@@ -215,6 +220,35 @@ class LibraryActivity : AppCompatActivity() {
                     }
                 }
             }
+            TAB_DOWNLOADS -> {
+                adapter.clear()
+                executor.execute {
+                    val repo = (application as App).libraryRepository
+                    val downloads = repo.getDownloads()
+                    // Limpieza perezosa: quitar de la lista los mangas cuyos
+                    // archivos ya no existen en disco (borrados fuera de la app).
+                    val valid = downloads.filter { MangaDownloader.isMangaDownloaded(it.title) }
+                    if (valid.size != downloads.size) {
+                        val stale = downloads - valid.toSet()
+                        stale.forEach { repo.removeDownloadManga(it.sourceId, it.url) }
+                    }
+                    val items = valid.map { d ->
+                        LibraryItem.Online(
+                            sourceId = d.sourceId,
+                            url = d.url,
+                            title = d.title,
+                            thumbnailUrl = d.thumbnailUrl,
+                            subtitle = "⬇ ${MangaDownloader.downloadedCbzNames(d.title).size} capítulos descargados",
+                            isDownload = true,
+                        )
+                    }
+                    runOnUiThread {
+                        if (isDestroyed) return@runOnUiThread
+                        allMangas = emptyList()
+                        renderOnlineItems(items)
+                    }
+                }
+            }
         }
     }
 
@@ -229,7 +263,11 @@ class LibraryActivity : AppCompatActivity() {
         adapter.submit(filtered)
         binding.emptyText.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
         binding.emptyText.text = if (items.isEmpty()) {
-            if (currentTab == TAB_FAVORITES) "Aún no hay favoritos.\nAbre un manga y toca la estrella." else "Sin historial todavía."
+            when (currentTab) {
+                TAB_FAVORITES -> "Aún no hay favoritos.\nAbre un manga y toca la estrella."
+                TAB_DOWNLOADS -> "Aún no hay descargas.\nAbre un manga y descarga capítulos."
+                else -> "Sin historial todavía."
+            }
         } else {
             getString(R.string.no_results, currentQuery)
         }
@@ -242,10 +280,11 @@ class LibraryActivity : AppCompatActivity() {
     }
 
     private fun refreshLibrary() {
-        if (currentTab == TAB_FAVORITES || currentTab == TAB_HISTORY) {
+        if (currentTab == TAB_FAVORITES || currentTab == TAB_HISTORY || currentTab == TAB_DOWNLOADS) {
             loadTab()
             val msg = when (currentTab) {
                 TAB_FAVORITES -> "Favoritos actualizados"
+                TAB_DOWNLOADS -> "Descargas actualizadas"
                 else -> "Historial actualizado"
             }
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
@@ -373,9 +412,48 @@ class LibraryActivity : AppCompatActivity() {
                     return
                 }
 
+                if (currentQuery == "SDDownloadActivate") {
+                    binding.searchBox.text.clear()
+                    currentQuery = ""
+                    isSearchVisible = false
+                    binding.searchContainer.visibility = View.GONE
+
+                    val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                    imm.hideSoftInputFromWindow(binding.searchBox.windowToken, 0)
+
+                    toggleDownloadStorage()
+                    return
+                }
+
                 applyFilters()
             }
         })
+    }
+
+    /**
+     * Alterna donde se guardan las descargas nuevas: almacenamiento interno
+     * (Descargas/MangaLite) o tarjeta SD (carpeta propia de la app).
+     * Comando: escribir "SDDownloadActivate" en el buscador.
+     */
+    private fun toggleDownloadStorage() {
+        val next = if (Prefs.getDownloadStorage() == Prefs.STORAGE_SD) {
+            Prefs.STORAGE_INTERNAL
+        } else {
+            Prefs.STORAGE_SD
+        }
+
+        val label = if (next == Prefs.STORAGE_SD) "Tarjeta SD" else "Almacenamiento interno"
+        val base = if (next == Prefs.STORAGE_SD) MangaDownloader.sdRoot() else MangaDownloader.internalRoot()
+        val ok = base != null && (base.exists() || base.canWrite())
+
+        Prefs.setDownloadStorage(next)
+
+        Toast.makeText(
+            this,
+            "Descargas: $label\n${base?.absolutePath ?: "no disponible"}" +
+                (if (ok) "" else "\n(no disponible, se usará interno)"),
+            Toast.LENGTH_LONG,
+        ).show()
     }
 
     /** Activa/desactiva las fuentes NSFW (solo en memoria, se pierde al cerrar). */
@@ -545,7 +623,11 @@ class LibraryActivity : AppCompatActivity() {
             }
             cbz + online
         } else {
-            allMangas.map { LibraryItem.Local(it) }
+            // Las descargas de la app (carpeta MangaLite) tienen su propia
+            // pestaña: se filtran aqui aunque el cache viejo las haya escaneado.
+            allMangas
+                .filter { !it.file.absolutePath.contains("MangaLite", ignoreCase = true) }
+                .map { LibraryItem.Local(it) }
         }
 
         var list = sourceList
@@ -589,8 +671,25 @@ class LibraryActivity : AppCompatActivity() {
     private fun onItemClick(item: LibraryItem) {
         when (item) {
             is LibraryItem.Local -> openReader(item.manga)
-            is LibraryItem.Online -> openOnlineManga(item)
+            is LibraryItem.Online -> {
+                if (item.isDownload) {
+                    openDetail(item)
+                } else {
+                    openOnlineManga(item)
+                }
+            }
         }
+    }
+
+    /** Abre la ficha del manga (descripción + capítulos) desde historial o descargas. */
+    private fun openDetail(item: LibraryItem.Online) {
+        val intent = Intent(this, MangaDetailActivity::class.java).apply {
+            putExtra("source_id", item.sourceId)
+            putExtra("manga_url", item.url)
+            putExtra("manga_title", item.title)
+            item.thumbnailUrl?.let { putExtra("manga_thumb", it) }
+        }
+        startActivity(intent)
     }
 
     private fun onItemLongClick(item: LibraryItem): Boolean {
@@ -603,6 +702,21 @@ class LibraryActivity : AppCompatActivity() {
 
     private fun onOnlineLongClick(item: LibraryItem.Online) {
         when {
+            item.isDownload -> {
+                AlertDialog.Builder(this)
+                    .setTitle(item.title)
+                    .setMessage("¿Eliminar la descarga de este manga?")
+                    .setPositiveButton("Eliminar") { _, _ ->
+                        MangaDownloader.deleteManga(item.title)
+                        (application as App).libraryRepository
+                            .removeDownloadManga(item.sourceId, item.url)
+                        loadTab()
+                        Toast.makeText(this, "Descarga eliminada", Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton("Cancelar", null)
+                    .show()
+            }
+
             item.isPrivate -> {
                 AlertDialog.Builder(this)
                     .setTitle("¿Eliminar de la carpeta privada?")
@@ -618,9 +732,10 @@ class LibraryActivity : AppCompatActivity() {
             }
 
             currentTab == TAB_HISTORY -> {
-                // Del historial: mover a carpeta privada (solo con SecureAddActivate
-                // activo) o eliminar del historial.
+                // Del historial: ver la ficha, mover a carpeta privada (solo con
+                // SecureAddActivate activo) o eliminar del historial.
                 val options = mutableListOf<String>()
+                options.add("Ver ficha")
                 if (isMoveToPrivateEnabled) options.add("🔒 Mover a carpeta privada")
                 options.add("Eliminar del historial")
                 AlertDialog.Builder(this)
@@ -628,6 +743,7 @@ class LibraryActivity : AppCompatActivity() {
                     .setItems(options.toTypedArray()) { _, which ->
                         val selected = options[which]
                         when (selected) {
+                            "Ver ficha" -> openDetail(item)
                             "🔒 Mover a carpeta privada" -> moveOnlineToPrivate(item)
                             else -> {
                                 (application as App).libraryRepository
@@ -708,12 +824,23 @@ class LibraryActivity : AppCompatActivity() {
         startActivity(intent)
     }
 
-    /** Abre el lector directamente en el capitulo guardado del historial. */
+    /**
+     * Abre el lector directamente en el capitulo guardado del historial.
+     * Si ese capítulo NO está descargado y no hay red, abrir la ficha en su
+     * lugar: el lector se quedaría "cargando" sin conexión, y desde la ficha
+     * se puede elegir un capítulo descargado.
+     */
     private fun openReaderDirect(
         item: LibraryItem.Online,
         chapters: List<ChapterRef>,
         target: ChapterRef,
     ) {
+        val localFile = MangaDownloader.chapterFile(item.title, target.name, target.url)
+        if (localFile == null && !isNetworkAvailable()) {
+            openDetail(item)
+            return
+        }
+
         val intent = Intent(this, ReaderActivity::class.java).apply {
             putExtra(ReaderActivity.EXTRA_SOURCE_ID, item.sourceId)
             putExtra(ReaderActivity.EXTRA_CHAPTER_URL, target.url)
@@ -731,6 +858,16 @@ class LibraryActivity : AppCompatActivity() {
             )
         }
         startActivity(intent)
+    }
+
+    private fun isNetworkAvailable(): Boolean {
+        return try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            @Suppress("DEPRECATION")
+            cm.activeNetworkInfo?.isConnected == true
+        } catch (_: Exception) {
+            true // optimista: si no se puede saber, intentar de todos modos
+        }
     }
 
     private fun onMangaLongClick(manga: MangaFile) {
@@ -1023,8 +1160,8 @@ class LibraryActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Al volver de un manga (favorito añadido, lectura) refrescar la pestaña.
-        if (currentTab == TAB_FAVORITES || currentTab == TAB_HISTORY) {
+        // Al volver de un manga (favorito añadido, lectura, descarga) refrescar.
+        if (currentTab == TAB_FAVORITES || currentTab == TAB_HISTORY || currentTab == TAB_DOWNLOADS) {
             loadTab()
         }
     }
@@ -1232,5 +1369,6 @@ class LibraryActivity : AppCompatActivity() {
         const val TAB_LOCAL = 0
         const val TAB_FAVORITES = 1
         const val TAB_HISTORY = 2
+        const val TAB_DOWNLOADS = 3
     }
 }

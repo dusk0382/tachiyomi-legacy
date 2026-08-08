@@ -43,4 +43,15 @@ object Prefs {
 
     const val DIRECTION_LTR = 0
     const val DIRECTION_RTL = 1
+
+    // Almacenamiento de descargas: interno (publico) o tarjeta SD (app-specific).
+    const val STORAGE_INTERNAL = "internal"
+    const val STORAGE_SD = "sd"
+
+    fun getDownloadStorage(): String =
+        prefs.getString("download_storage", STORAGE_INTERNAL) ?: STORAGE_INTERNAL
+
+    fun setDownloadStorage(value: String) {
+        prefs.edit().putString("download_storage", value).apply()
+    }
 }

@@ -20,6 +20,7 @@ class AppDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
         db.execSQL(CREATE_DOWNLOADS)
         db.execSQL(CREATE_HISTORY)
         db.execSQL(CREATE_PRIVATE_MANGA)
+        db.execSQL(CREATE_MANGA_DOWNLOADS)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -47,11 +48,19 @@ class AppDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
                 // la tabla ya existe; no romper nada
             }
         }
+        if (oldVersion < 5) {
+            // v5: tabla manga_downloads (mangas con capitulos descargados)
+            try {
+                db.execSQL(CREATE_MANGA_DOWNLOADS)
+            } catch (_: Exception) {
+                // la tabla ya existe; no romper nada
+            }
+        }
     }
 
     companion object {
         const val DB_NAME = "tachiyomi_legacy.db"
-        const val DB_VERSION = 4
+        const val DB_VERSION = 5
 
         const val TBL_FAVORITES = "favorites"
         const val TBL_CHAPTERS = "chapters"
@@ -60,6 +69,7 @@ class AppDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
         const val TBL_DOWNLOADS = "downloads"
         const val TBL_HISTORY = "history"
         const val TBL_PRIVATE_MANGA = "private_manga"
+        const val TBL_MANGA_DOWNLOADS = "manga_downloads"
 
         // favorites: one row per favorited online manga
         private const val CREATE_FAVORITES = """
@@ -163,6 +173,22 @@ class AppDatabase(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
                 UNIQUE(source_id, url)
             )
         """
+
+        // manga_downloads: mangos online con capitulos descargados (pestaña Descargas)
+        // description/author se persisten para que la ficha offline tenga texto.
+        private const val CREATE_MANGA_DOWNLOADS = """
+            CREATE TABLE $TBL_MANGA_DOWNLOADS (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id INTEGER NOT NULL,
+                url TEXT NOT NULL,
+                title TEXT NOT NULL,
+                thumbnail_url TEXT,
+                description TEXT,
+                author TEXT,
+                downloaded_at INTEGER NOT NULL,
+                UNIQUE(source_id, url)
+            )
+        """
     }
 }
 
@@ -236,6 +262,26 @@ object DownloadsTable {
     const val KEY_PAGE_INDEX = "page_index"
     const val KEY_FILE_PATH = "file_path"
     const val KEY_STATUS = "status"
+}
+
+object DownloadMangaTable {
+    const val KEY_ID = "id"
+    const val KEY_SOURCE_ID = "source_id"
+    const val KEY_URL = "url"
+    const val KEY_TITLE = "title"
+    const val KEY_THUMBNAIL_URL = "thumbnail_url"
+    const val KEY_DESCRIPTION = "description"
+    const val KEY_AUTHOR = "author"
+    const val KEY_DOWNLOADED_AT = "downloaded_at"
+
+    fun toContentValues(sourceId: Long, url: String, title: String): ContentValues {
+        return ContentValues().apply {
+            put(KEY_SOURCE_ID, sourceId)
+            put(KEY_URL, url)
+            put(KEY_TITLE, title)
+            put(KEY_DOWNLOADED_AT, System.currentTimeMillis())
+        }
+    }
 }
 
 object PrivateMangaTable {

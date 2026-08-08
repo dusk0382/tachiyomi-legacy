@@ -68,6 +68,9 @@ class MangaDetailActivity : AppCompatActivity() {
     private var pendingThumb: String? = null
     private var detailsLoaded = false
 
+    /** True cuando los capítulos vinieron de la BD (fallback sin conexión). */
+    private var offlineFallbackMode = false
+
     /** Modo selección: long-press en un capítulo activa checkboxes para descarga selectiva. */
     private var selectionMode = false
     private val selectedChapters = LinkedHashSet<String>()
@@ -203,6 +206,7 @@ class MangaDetailActivity : AppCompatActivity() {
                 .setMessage("Se borrarán los capítulos descargados de '$mangaTitle'.")
                 .setPositiveButton("Eliminar") { _, _ ->
                     MangaDownloader.deleteManga(mangaTitle)
+                    repository.removeDownloadManga(sourceId, mangaUrl)
                     refreshDownloadedState()
                     updateDownloadIcon()
                     adapter.notifyDataSetChanged()
@@ -270,6 +274,19 @@ class MangaDetailActivity : AppCompatActivity() {
                 Toast.makeText(this, "Fuente no disponible", Toast.LENGTH_SHORT).show()
                 return
             }
+
+        // Registrar el manga en la pestaña Descargas (aparece de inmediato).
+        // Se guardan también descripción/autor para la ficha offline.
+        repository.addDownloadManga(
+            net.spin.tachiyomi.legacy.data.model.DownloadRef(
+                sourceId = sourceId,
+                url = mangaUrl,
+                title = manga?.title ?: mangaTitle,
+                thumbnailUrl = manga?.thumbnail_url ?: pendingThumb,
+                description = manga?.description,
+                author = manga?.author,
+            ),
+        )
 
         isDownloading = true
         binding.btnDownload.isEnabled = false
@@ -397,7 +414,39 @@ class MangaDetailActivity : AppCompatActivity() {
                         // addToHistory en openReader/openLocalReader). Antes bastaba
                         // con entrar a la ficha para ensuciar el historial.
                     }.onFailure {
-                        Toast.makeText(this@MangaDetailActivity, "Error: ${it.message}", Toast.LENGTH_SHORT).show()
+                        // Sin conexión: rellenar con la ficha guardada (favoritos o
+                        // la descarga, que persiste descripción/autor). En IO para
+                        // no congelar el hilo principal.
+                        val fav = withContext(Dispatchers.IO) {
+                            runCatching { repository.getFavorite(sourceId, mangaUrl) }.getOrNull()
+                        }
+                        val dl = if (fav == null) {
+                            withContext(Dispatchers.IO) {
+                                runCatching { repository.getDownload(sourceId, mangaUrl) }.getOrNull()
+                            }
+                        } else {
+                            null
+                        }
+
+                        val savedDescription = fav?.description ?: dl?.description
+                        val savedAuthor = fav?.author ?: dl?.author
+                        val savedGenre = fav?.genre
+                        val savedStatus = fav?.status ?: 0
+
+                        if (savedDescription != null || savedAuthor != null || savedGenre != null || savedStatus != 0) {
+                            manga = SManga.create().apply {
+                                url = mangaUrl
+                                title = fav?.title ?: dl?.title ?: mangaTitle
+                                author = savedAuthor
+                                artist = fav?.artist
+                                description = savedDescription
+                                genre = savedGenre
+                                status = savedStatus
+                                thumbnail_url = fav?.thumbnailUrl ?: dl?.thumbnailUrl
+                            }
+                            detailsLoaded = true
+                            applyHeaderDetails()
+                        }
                     }
                 }
 
@@ -405,8 +454,20 @@ class MangaDetailActivity : AppCompatActivity() {
                     chapters.await().onSuccess { list ->
                         renderChapters(list)
                     }.onFailure {
-                        header?.chaptersProgress?.visibility = View.GONE
-                        Toast.makeText(this@MangaDetailActivity, "Error capítulos: ${it.message}", Toast.LENGTH_SHORT).show()
+                        // Sin conexión: usar la lista de capítulos guardada en la BD
+                        // (se persiste al visitar la ficha online). Así la ficha de
+                        // un manga con descargas funciona sin red.
+                        val saved = withContext(Dispatchers.IO) {
+                            runCatching { repository.getChapters(sourceId, mangaUrl) }.getOrNull()
+                        }
+                        if (!saved.isNullOrEmpty()) {
+                            offlineFallbackMode = true
+                            renderChapters(saved.map { it.toSChapter() })
+                            header?.offlineNote?.visibility = View.VISIBLE
+                        } else {
+                            header?.chaptersProgress?.visibility = View.GONE
+                            Toast.makeText(this@MangaDetailActivity, "Error capítulos: ${it.message}", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
             }
@@ -448,10 +509,19 @@ class MangaDetailActivity : AppCompatActivity() {
         if (!openChapterUrl.isNullOrBlank()) {
             val target = chapters.firstOrNull { it.url == openChapterUrl }
             if (target != null) {
-                val openPage = intent.getIntExtra("open_chapter_page", -1)
-                binding.chaptersContainer.post {
-                    if (!isFinishing && !isDestroyed) {
-                        openReader(target, openPage)
+                val autoOpen = if (offlineFallbackMode) {
+                    // Sin conexión: solo auto-abrir si el capítulo está descargado;
+                    // si no, dejar que el usuario elija uno en la lista.
+                    MangaDownloader.chapterFile(mangaTitle, target.name, target.url) != null
+                } else {
+                    true
+                }
+                if (autoOpen) {
+                    val openPage = intent.getIntExtra("open_chapter_page", -1)
+                    binding.chaptersContainer.post {
+                        if (!isFinishing && !isDestroyed) {
+                            openReader(target, openPage)
+                        }
                     }
                 }
             }
@@ -460,6 +530,15 @@ class MangaDetailActivity : AppCompatActivity() {
 
     /** Fecha relativa para lo reciente ("hace 3 dias"), dd/MM/yyyy para lo antiguo. */
     private fun formatUploadDate(dateMillis: Long): String = TimeUtil.formatRelative(dateMillis)
+
+    /** ChapterRef (BD) -> SChapter (lector), para la ficha sin conexión. */
+    private fun ChapterRef.toSChapter(): SChapter = SChapter.create().apply {
+        url = this@toSChapter.url
+        name = this@toSChapter.name
+        scanlator = this@toSChapter.scanlator
+        chapter_number = this@toSChapter.chapterNumber.toFloat()
+        date_upload = this@toSChapter.uploadDate
+    }
 
     /**
      * Registra el manga en el historial al ABRIR un capítulo (como Kotatsu: solo
@@ -615,6 +694,7 @@ class MangaDetailActivity : AppCompatActivity() {
         val descriptionText: TextView = view.findViewById(R.id.descriptionText)
         val downloadStatus: TextView = view.findViewById(R.id.downloadStatus)
         val chaptersProgress: ProgressBar = view.findViewById(R.id.chaptersProgress)
+        val offlineNote: TextView = view.findViewById(R.id.offlineNote)
     }
 
     private inner class ChapterHolder(view: View) : RecyclerView.ViewHolder(view) {

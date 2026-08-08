@@ -85,4 +85,14 @@
         android:layout_marginTop="16dp"
         android:visibility="gone" />
 
+    <TextView
+        android:id="@+id/offlineNote"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="@color/accent"
+        android:textSize="13sp"
+        android:layout_marginTop="8dp"
+        android:visibility="gone"
+        android:text="Sin conexión — mostrando capítulos guardados" />
+
 </LinearLayout>

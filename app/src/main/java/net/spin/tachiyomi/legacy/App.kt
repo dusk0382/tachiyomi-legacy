@@ -56,5 +56,7 @@ class App : Application() {
         KotatsuSourceManager.init(networkHelper)
         KotatsuSourceManager.registerAll()
         ImageLoader.init(this, networkHelper)
+        // Descargas: necesita contexto para detectar la tarjeta SD.
+        MangaDownloader.init(this)
     }
 }

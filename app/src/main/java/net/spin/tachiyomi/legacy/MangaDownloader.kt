@@ -1,7 +1,9 @@
 package net.spin.tachiyomi.legacy
 
+import android.content.Context
 import android.os.Environment
 import android.util.Log
+import androidx.core.content.ContextCompat
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.online.HttpSource
@@ -12,22 +14,58 @@ import java.util.zip.ZipOutputStream
 
 /**
  * Descarga mangas de las fuentes como CBZ locales en
- * `Descargas/MangaLite/<titulo>/<capitulo>.cbz` — el mismo formato que
- * entiende el lector local, de modo que lo descargado tambien aparece en la
- * pestaña Local y se puede abrir offline desde el detalle de la fuente.
+ * `MangaLite/<titulo>/<capitulo>.cbz` (la base puede ser Descargas publica o
+ * la carpeta propia de la app en la tarjeta SD, segun Prefs.getDownloadStorage).
+ * Los CBZ los entiende el lector local y se abren offline desde el detalle.
  */
 object MangaDownloader {
 
     private const val TAG = "MangaLite"
     const val ROOT_DIR = "MangaLite"
 
-    fun rootDir(): File {
-        val base = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        return File(base, ROOT_DIR).apply { mkdirs() }
+    private var appContext: Context? = null
+
+    /** Inicializa el contexto (necesario para detectar la tarjeta SD). */
+    fun init(context: Context) {
+        appContext = context.applicationContext
+    }
+
+    /** Base interna publica: Descargas (ruta clasica de siempre). */
+    fun internalRoot(): File =
+        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+
+    /** Base en tarjeta SD (directorio propio de la app, sin permisos extra en
+     *  Android 6), o null si no hay SD usable. */
+    fun sdRoot(): File? {
+        val ctx = appContext ?: return null
+        val dirs = ContextCompat.getExternalFilesDirs(ctx, null)
+        val sd = dirs.getOrNull(1) ?: return null
+        return if (sd.exists() || sd.canWrite()) sd else null
+    }
+
+    /** Base configurada para las descargas NUEVAS. */
+    fun preferredRoot(): File = when (Prefs.getDownloadStorage()) {
+        Prefs.STORAGE_SD -> sdRoot() ?: internalRoot()
+        else -> internalRoot()
+    }
+
+    fun rootDir(): File = File(preferredRoot(), ROOT_DIR).apply { mkdirs() }
+
+    /**
+     * Todas las ubicaciones donde puede haber descargas (la actual + la
+     * anterior): al cambiar de almacenamiento no se pierde lo ya descargado.
+     */
+    private fun allRootDirs(): List<File> {
+        val roots = mutableListOf(File(internalRoot(), ROOT_DIR))
+        sdRoot()?.let { sd ->
+            val dir = File(sd, ROOT_DIR)
+            if (!roots.contains(dir)) roots.add(dir)
+        }
+        return roots
     }
 
     fun mangaDir(mangaTitle: String): File {
-        return File(rootDir(), sanitize(mangaTitle)).apply { mkdirs() }
+        return File(preferredRoot(), sanitize(mangaTitle)).apply { mkdirs() }
     }
 
     fun sanitize(name: String): String {
@@ -49,11 +87,15 @@ object MangaDownloader {
      * por fila al renderizar listas largas.
      */
     fun downloadedCbzNames(mangaTitle: String): Set<String> {
-        val base = File(rootDir(), sanitize(mangaTitle))
-        return base.listFiles()
-            ?.filter { it.isFile && it.extension.equals("cbz", ignoreCase = true) }
-            ?.mapTo(HashSet()) { it.name }
-            ?: emptySet()
+        val name = sanitize(mangaTitle)
+        val names = HashSet<String>()
+        for (root in allRootDirs()) {
+            val base = File(root, name)
+            base.listFiles()?.forEach { f ->
+                if (f.isFile && f.extension.equals("cbz", ignoreCase = true)) names.add(f.name)
+            }
+        }
+        return names
     }
 
     /** ¿Este capítulo concreto está descargado? (según un set precomputado) */
@@ -65,20 +107,36 @@ object MangaDownloader {
      * Sin mkdirs: se puede llamar desde el hilo principal en el render.
      */
     fun chapterFile(mangaTitle: String, chapterName: String, chapterUrl: String): File? {
-        val base = File(rootDir(), sanitize(mangaTitle))
-        val f = File(base, cbzName(chapterName, chapterUrl))
-        return if (f.exists() && f.length() > 0) f else null
+        val fname = cbzName(chapterName, chapterUrl)
+        val name = sanitize(mangaTitle)
+        for (root in allRootDirs()) {
+            val f = File(File(root, name), fname)
+            if (f.exists() && f.length() > 0) return f
+        }
+        return null
     }
 
     /** ¿Hay al menos un capítulo descargado de este manga? (sin mkdirs) */
     fun isMangaDownloaded(mangaTitle: String): Boolean {
-        val base = File(rootDir(), sanitize(mangaTitle))
-        return base.listFiles()?.any { it.isFile && it.extension.equals("cbz", ignoreCase = true) } == true
+        val name = sanitize(mangaTitle)
+        for (root in allRootDirs()) {
+            val base = File(root, name)
+            if (base.listFiles()?.any { it.isFile && it.extension.equals("cbz", ignoreCase = true) } == true) {
+                return true
+            }
+        }
+        return false
     }
 
-    /** Elimina toda la descarga del manga. */
+    /** Elimina toda la descarga del manga (en cualquier ubicación). */
     fun deleteManga(mangaTitle: String): Boolean {
-        return mangaDir(mangaTitle).deleteRecursively()
+        val name = sanitize(mangaTitle)
+        var any = false
+        for (root in allRootDirs()) {
+            val dir = File(root, name)
+            if (dir.exists() && dir.deleteRecursively()) any = true
+        }
+        return any
     }
 
     /**
