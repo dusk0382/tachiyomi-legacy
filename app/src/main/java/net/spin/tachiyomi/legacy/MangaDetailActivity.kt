@@ -1,7 +1,12 @@
 package net.spin.tachiyomi.legacy
 
 import android.app.AlertDialog
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -194,7 +199,7 @@ class MangaDetailActivity : AppCompatActivity() {
             AlertDialog.Builder(this)
                 .setTitle("¿Descargar seleccionados?")
                 .setMessage("Se descargarán ${selected.size} capítulos a 'Descargas/MangaLite/$mangaTitle'.\\nPuedes seguir usando la app mientras descarga.")
-                .setPositiveButton("Descargar") { _, _ -> startDownload(selected) }
+                .setPositiveButton("Descargar") { _, _ -> askStorageThenDownload(selected) }
                 .setNegativeButton("Cancelar", null)
                 .show()
             return
@@ -229,8 +234,30 @@ class MangaDetailActivity : AppCompatActivity() {
                     "Puedes seguir usando la app mientras descarga.\\n\\n" +
                     "💡 ¿Solo algunos? Mantén pulsado un capítulo para elegirlos."
             )
-            .setPositiveButton("Descargar todos") { _, _ -> startDownload(chapters) }
+            .setPositiveButton("Descargar todos") { _, _ -> askStorageThenDownload(chapters) }
             .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    /**
+     * Pregunta dónde guardar antes de descargar (interno o tarjeta SD, si hay).
+     * Sin SD disponible, descarga directa a interno.
+     */
+    private fun askStorageThenDownload(list: List<SChapter>) {
+        val sd = MangaDownloader.sdRoot()
+        if (sd == null) {
+            Prefs.setDownloadStorage(Prefs.STORAGE_INTERNAL)
+            startDownload(list)
+            return
+        }
+
+        val options = arrayOf("Almacenamiento interno", "Tarjeta SD")
+        AlertDialog.Builder(this)
+            .setTitle("¿Dónde guardar la descarga?")
+            .setItems(options) { _, which ->
+                Prefs.setDownloadStorage(if (which == 1) Prefs.STORAGE_SD else Prefs.STORAGE_INTERNAL)
+                startDownload(list)
+            }
             .show()
     }
 
@@ -261,7 +288,9 @@ class MangaDetailActivity : AppCompatActivity() {
         selectionMode = false
         selectedChapters.clear()
         chapterCheckboxes.clear()
-        header?.downloadStatus?.visibility = View.GONE
+        // INVISIBLE (no GONE): la línea reserva espacio para que la lista no
+        // se desplace al entrar/salir de selección (evita el highlight corrido).
+        header?.downloadStatus?.visibility = View.INVISIBLE
         adapter.notifyDataSetChanged()
         updateDownloadIcon()
     }
@@ -294,10 +323,13 @@ class MangaDetailActivity : AppCompatActivity() {
         header?.downloadStatus?.visibility = View.VISIBLE
         header?.downloadStatus?.text = "Descargando 0/${list.size}..."
 
+        showDownloadNotification(mangaTitle, 0, list.size)
+
         lifecycleScope.launch(Dispatchers.IO) {
             val failed = MangaDownloader.downloadManga(source, list, mangaTitle) { done, total ->
                 runOnUiThread {
                     header?.downloadStatus?.text = "Descargando $done/$total..."
+                    showDownloadNotification(mangaTitle, done, total)
                 }
             }
 
@@ -321,14 +353,52 @@ class MangaDetailActivity : AppCompatActivity() {
                 header?.downloadStatus?.visibility = View.VISIBLE
                 header?.downloadStatus?.text = msg
                 header?.downloadStatus?.postDelayed({
-                    header?.downloadStatus?.visibility = View.GONE
+                    header?.downloadStatus?.visibility = View.INVISIBLE
                 }, 4000)
+                hideDownloadNotification()
                 Toast.makeText(
                     this@MangaDetailActivity,
                     msg,
                     Toast.LENGTH_LONG,
                 ).show()
             }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Notificación de progreso de descarga (ligera: una sola, con barra).
+    // ------------------------------------------------------------------
+
+    private fun showDownloadNotification(title: String, done: Int, total: Int) {
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (Build.VERSION.SDK_INT >= 26) {
+                nm.createNotificationChannel(
+                    NotificationChannel(
+                        NOTIF_CHANNEL,
+                        "Descargas",
+                        NotificationManager.IMPORTANCE_LOW,
+                    ),
+                )
+            }
+            val builder = Notification.Builder(this)
+                .setSmallIcon(android.R.drawable.stat_sys_download)
+                .setContentTitle(title)
+                .setContentText("$done de $total capítulos")
+                .setProgress(total, done, false)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+            if (Build.VERSION.SDK_INT >= 26) builder.setChannelId(NOTIF_CHANNEL)
+            nm.notify(NOTIF_ID_DOWNLOAD, builder.build())
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun hideDownloadNotification() {
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.cancel(NOTIF_ID_DOWNLOAD)
+        } catch (_: Exception) {
         }
     }
 
@@ -624,6 +694,13 @@ class MangaDetailActivity : AppCompatActivity() {
         }
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        // Si el activity muere a mitad de descarga, el scope cancela el bucle
+        // y la notificacion quedaria congelada: cancelarla.
+        hideDownloadNotification()
+    }
+
     // ------------------------------------------------------------------
     // Adapter: item 0 = header (detalle), resto = capítulos.
     // ------------------------------------------------------------------
@@ -670,7 +747,7 @@ class MangaDetailActivity : AppCompatActivity() {
         }
         pendingThumb?.let { thumb -> ImageLoader.load(thumb, h.cover) }
 
-        h.downloadStatus.visibility = if (selectionMode) View.VISIBLE else View.GONE
+        h.downloadStatus.visibility = if (selectionMode) View.VISIBLE else View.INVISIBLE
         if (selectionMode) h.downloadStatus.text =
             "${selectedChapters.size} seleccionados — toca ⬇ para descargar"
     }
@@ -704,7 +781,9 @@ class MangaDetailActivity : AppCompatActivity() {
 
         fun bind(chapter: SChapter, index: Int) {
             val downloaded = downloadedChapterUrls.contains(chapter.url)
-            checkbox.visibility = if (selectionMode) View.VISIBLE else View.GONE
+            // INVISIBLE (no GONE): el checkbox siempre reserva su espacio para
+            // que las filas no cambien de altura al entrar en selección.
+            checkbox.visibility = if (selectionMode) View.VISIBLE else View.INVISIBLE
             checkbox.isChecked = selectedChapters.contains(chapter.url)
             if (selectionMode) chapterCheckboxes[chapter.url] = checkbox
 
@@ -733,6 +812,9 @@ class MangaDetailActivity : AppCompatActivity() {
                 if (!isDownloading) {
                     if (!selectionMode) enterSelection()
                     toggleSelection(chapter.url)
+                    // Feedback inmediato en la fila pulsada (antes del rebind).
+                    checkbox.visibility = View.VISIBLE
+                    checkbox.isChecked = selectedChapters.contains(chapter.url)
                 }
                 true
             }
@@ -746,5 +828,7 @@ class MangaDetailActivity : AppCompatActivity() {
     companion object {
         private const val TYPE_HEADER = 0
         private const val TYPE_CHAPTER = 1
+        private const val NOTIF_CHANNEL = "descargas"
+        private const val NOTIF_ID_DOWNLOAD = 1001
     }
 }

@@ -13,7 +13,9 @@
         android:id="@+id/chapterCheck"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:visibility="gone"
+        android:minHeight="0dp"
+        android:minWidth="0dp"
+        android:visibility="invisible"
         android:clickable="false"
         android:focusable="false" />
 

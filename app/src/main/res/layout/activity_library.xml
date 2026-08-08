@@ -109,7 +109,7 @@
             android:padding="10dp"
             android:text="Local"
             android:textColor="@color/text_primary"
-            android:textSize="12sp"
+            android:textSize="13sp"
             android:textStyle="bold" />
 
         <TextView
@@ -121,7 +121,7 @@
             android:padding="10dp"
             android:text="Favoritos"
             android:textColor="@color/text_secondary"
-            android:textSize="12sp" />
+            android:textSize="13sp" />
 
         <TextView
             android:id="@+id/tabHistory"
@@ -132,18 +132,7 @@
             android:padding="10dp"
             android:text="Historial"
             android:textColor="@color/text_secondary"
-            android:textSize="12sp" />
-
-        <TextView
-            android:id="@+id/tabDownloads"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:padding="10dp"
-            android:text="Descargas"
-            android:textColor="@color/text_secondary"
-            android:textSize="12sp" />
+            android:textSize="13sp" />
 
     </LinearLayout>
 

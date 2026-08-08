@@ -391,32 +391,6 @@ class LibraryRepository(context: Context) {
         ) > 0
     }
 
-    fun getDownloads(): List<DownloadRef> {
-        return db.readableDatabase.query(
-            AppDatabase.TBL_MANGA_DOWNLOADS,
-            null,
-            null,
-            null,
-            null,
-            null,
-            "${DownloadMangaTable.KEY_DOWNLOADED_AT} DESC",
-        ).use { cursor ->
-            buildList {
-                while (cursor.moveToNext()) {
-                    add(
-                        DownloadRef(
-                            sourceId = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadMangaTable.KEY_SOURCE_ID)),
-                            url = cursor.getString(cursor.getColumnIndexOrThrow(DownloadMangaTable.KEY_URL)),
-                            title = cursor.getString(cursor.getColumnIndexOrThrow(DownloadMangaTable.KEY_TITLE)),
-                            thumbnailUrl = cursor.getStringOrNull(DownloadMangaTable.KEY_THUMBNAIL_URL),
-                            dateAdded = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadMangaTable.KEY_DOWNLOADED_AT)),
-                        ),
-                    )
-                }
-            }
-        }
-    }
-
     // --- Progress ---
 
     fun saveProgress(progress: ProgressRef) {

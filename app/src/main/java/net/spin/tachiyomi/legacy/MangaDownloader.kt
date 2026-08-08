@@ -54,9 +54,13 @@ object MangaDownloader {
     /**
      * Todas las ubicaciones donde puede haber descargas (la actual + la
      * anterior): al cambiar de almacenamiento no se pierde lo ya descargado.
+     * Incluye la raiz publica sin subcarpeta: un build anterior descargaba a
+     * `Descargas/<titulo>` (sin MangaLite) y esas no deben quedar huerfanas.
      */
     private fun allRootDirs(): List<File> {
         val roots = mutableListOf(File(internalRoot(), ROOT_DIR))
+        val legacy = internalRoot()
+        if (!roots.contains(legacy)) roots.add(legacy)
         sdRoot()?.let { sd ->
             val dir = File(sd, ROOT_DIR)
             if (!roots.contains(dir)) roots.add(dir)
@@ -65,7 +69,9 @@ object MangaDownloader {
     }
 
     fun mangaDir(mangaTitle: String): File {
-        return File(preferredRoot(), sanitize(mangaTitle)).apply { mkdirs() }
+        // SIEMPRE dentro de la subcarpeta MangaLite (antes faltaba y las
+        // descargas caían en Descargas/<título> sin la subcarpeta).
+        return File(rootDir(), sanitize(mangaTitle)).apply { mkdirs() }
     }
 
     fun sanitize(name: String): String {
