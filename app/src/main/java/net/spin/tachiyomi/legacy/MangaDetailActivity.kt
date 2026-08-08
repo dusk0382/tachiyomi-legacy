@@ -57,6 +57,13 @@ class MangaDetailActivity : AppCompatActivity() {
     private var chapters: List<SChapter> = emptyList()
     private var downloadedNames: Set<String> = emptySet()
 
+    /**
+     * URLs de capítulos ya descargados, precomputado una sola vez (en vez de
+     * recalcular cbzName + sanitize + hash por fila al hacer bind de cada
+     * capítulo: en mangas de 1000+ capítulos eso era trabajo repetido).
+     */
+    private var downloadedChapterUrls: Set<String> = emptySet()
+
     /** Estado pendiente del header: se aplica cuando el RecyclerView lo bindea. */
     private var pendingThumb: String? = null
     private var detailsLoaded = false
@@ -67,6 +74,14 @@ class MangaDetailActivity : AppCompatActivity() {
     private val chapterCheckboxes = HashMap<String, CheckBox>()
 
     private var header: HeaderHolder? = null
+
+    /** Fondos de fila cacheados: no re-inflar el drawable en cada bind. */
+    private val chapterBgCurrent: android.graphics.drawable.Drawable by lazy {
+        ContextCompat.getDrawable(this, R.drawable.item_current_chapter)!!
+    }
+    private val chapterBgDefault: android.graphics.drawable.Drawable by lazy {
+        ContextCompat.getDrawable(this, android.R.drawable.list_selector_background)!!
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -83,6 +98,8 @@ class MangaDetailActivity : AppCompatActivity() {
         adapter = DetailAdapter()
         binding.chaptersContainer.layoutManager = LinearLayoutManager(this)
         binding.chaptersContainer.itemAnimator = null
+        // El tamaño de la lista no cambia el del contenedor: evita re-layouts.
+        binding.chaptersContainer.setHasFixedSize(true)
         binding.chaptersContainer.adapter = adapter
 
         binding.btnBack.setOnClickListener {
@@ -261,10 +278,17 @@ class MangaDetailActivity : AppCompatActivity() {
         header?.downloadStatus?.text = "Descargando 0/${list.size}..."
 
         lifecycleScope.launch(Dispatchers.IO) {
-            MangaDownloader.downloadManga(source, list, mangaTitle) { done, total ->
+            val failed = MangaDownloader.downloadManga(source, list, mangaTitle) { done, total ->
                 runOnUiThread {
                     header?.downloadStatus?.text = "Descargando $done/$total..."
                 }
+            }
+
+            val doneCount = list.size - failed
+            val msg = if (failed > 0) {
+                "Descarga: $doneCount de ${list.size} capítulos (${failed} con error)"
+            } else {
+                "Descarga completa"
             }
 
             runOnUiThread {
@@ -278,14 +302,14 @@ class MangaDetailActivity : AppCompatActivity() {
                 refreshDownloadedState()
                 adapter.notifyDataSetChanged()
                 header?.downloadStatus?.visibility = View.VISIBLE
-                header?.downloadStatus?.text = "Descarga completa"
+                header?.downloadStatus?.text = msg
                 header?.downloadStatus?.postDelayed({
                     header?.downloadStatus?.visibility = View.GONE
-                }, 3000)
+                }, 4000)
                 Toast.makeText(
                     this@MangaDetailActivity,
-                    "Descarga completa",
-                    Toast.LENGTH_SHORT,
+                    msg,
+                    Toast.LENGTH_LONG,
                 ).show()
             }
         }
@@ -314,6 +338,16 @@ class MangaDetailActivity : AppCompatActivity() {
     }
 
     /**
+     * URLs descargadas a partir del set de nombres de CBZ y la lista actual.
+     */
+    private fun computeDownloadedUrls(): Set<String> {
+        val names = downloadedNames
+        return chapters.asSequence()
+            .filter { MangaDownloader.isDownloaded(it.name, it.url, names) }
+            .mapTo(HashSet()) { it.url }
+    }
+
+    /**
      * Recarga el set de CBZ descargados (una sola llamada a disco, en IO) y
      * re-renderiza la lista cuando llega — así el marcador ⬇ se actualiza.
      */
@@ -322,6 +356,7 @@ class MangaDetailActivity : AppCompatActivity() {
             val names = MangaDownloader.downloadedCbzNames(mangaTitle)
             withContext(Dispatchers.Main) {
                 downloadedNames = names
+                downloadedChapterUrls = computeDownloadedUrls()
                 adapter.notifyDataSetChanged()
             }
         }
@@ -357,21 +392,10 @@ class MangaDetailActivity : AppCompatActivity() {
                         it.thumbnail_url?.let { pendingThumb = it }
                         applyHeaderDetails()
 
-                        // Historial: registrar el manga como visto recientemente,
-                        // conservando el progreso del ultimo capitulo si ya existia.
-                        val existing = repository.getHistoryEntry(sourceId, it.url)
-                        repository.upsertHistory(
-                            net.spin.tachiyomi.legacy.data.model.HistoryRef(
-                                sourceId = sourceId,
-                                url = it.url,
-                                title = it.title,
-                                thumbnailUrl = it.thumbnail_url,
-                                lastChapterUrl = existing?.lastChapterUrl,
-                                lastChapterName = existing?.lastChapterName,
-                                lastPageIndex = existing?.lastPageIndex ?: 0,
-                                lastTotalPages = existing?.lastTotalPages ?: 0,
-                            ),
-                        )
+                        // El historial NO se toca aquí: como en Kotatsu, un manga
+                        // solo entra al historial cuando se ABRE un capítulo (ver
+                        // addToHistory en openReader/openLocalReader). Antes bastaba
+                        // con entrar a la ficha para ensuciar el historial.
                     }.onFailure {
                         Toast.makeText(this@MangaDetailActivity, "Error: ${it.message}", Toast.LENGTH_SHORT).show()
                     }
@@ -398,6 +422,7 @@ class MangaDetailActivity : AppCompatActivity() {
     private fun renderChapters(chapters: List<SChapter>) {
         header?.chaptersProgress?.visibility = View.GONE
         this.chapters = chapters
+        downloadedChapterUrls = computeDownloadedUrls()
         adapter.notifyDataSetChanged()
 
         // Persist the chapter list for later offline/progress use.
@@ -436,7 +461,34 @@ class MangaDetailActivity : AppCompatActivity() {
     /** Fecha relativa para lo reciente ("hace 3 dias"), dd/MM/yyyy para lo antiguo. */
     private fun formatUploadDate(dateMillis: Long): String = TimeUtil.formatRelative(dateMillis)
 
-    private fun openLocalReader(file: java.io.File, chapterName: String) {
+    /**
+     * Registra el manga en el historial al ABRIR un capítulo (como Kotatsu: solo
+     * al leer). Un manga de la carpeta privada jamás va al historial.
+     */
+    private fun addToHistory(chapter: SChapter, pageIndex: Int = 0) {
+        if (isPrivate) return
+        val existing = repository.getHistoryEntry(sourceId, mangaUrl)
+        val sameChapter = existing?.lastChapterUrl == chapter.url
+        repository.upsertHistory(
+            net.spin.tachiyomi.legacy.data.model.HistoryRef(
+                sourceId = sourceId,
+                url = mangaUrl,
+                title = manga?.title ?: mangaTitle,
+                thumbnailUrl = manga?.thumbnail_url ?: pendingThumb,
+                lastChapterUrl = chapter.url,
+                lastChapterName = chapter.name,
+                lastPageIndex = if (sameChapter && existing != null && existing.lastPageIndex > 0) {
+                    existing.lastPageIndex
+                } else {
+                    pageIndex
+                },
+                lastTotalPages = existing?.lastTotalPages ?: 0,
+            ),
+        )
+    }
+
+    private fun openLocalReader(file: java.io.File, chapterName: String, chapter: SChapter? = null) {
+        chapter?.let { addToHistory(it) }
         val lastPage = Prefs.getLastPage(file.absolutePath)
         val intent = Intent(this, ReaderActivity::class.java).apply {
             putExtra(ReaderActivity.EXTRA_PATH, file.absolutePath)
@@ -447,6 +499,7 @@ class MangaDetailActivity : AppCompatActivity() {
     }
 
     private fun openReader(chapter: SChapter, openPage: Int = -1) {
+        addToHistory(chapter, openPage.coerceAtLeast(0))
         val intent = Intent(this, ReaderActivity::class.java).apply {
             putExtra(ReaderActivity.EXTRA_SOURCE_ID, sourceId)
             putExtra(ReaderActivity.EXTRA_CHAPTER_URL, chapter.url)
@@ -570,7 +623,7 @@ class MangaDetailActivity : AppCompatActivity() {
         private val date: TextView = view.findViewById(R.id.chapterDate)
 
         fun bind(chapter: SChapter, index: Int) {
-            val downloaded = MangaDownloader.isDownloaded(chapter.name, chapter.url, downloadedNames)
+            val downloaded = downloadedChapterUrls.contains(chapter.url)
             checkbox.visibility = if (selectionMode) View.VISIBLE else View.GONE
             checkbox.isChecked = selectedChapters.contains(chapter.url)
             if (selectionMode) chapterCheckboxes[chapter.url] = checkbox
@@ -587,10 +640,10 @@ class MangaDetailActivity : AppCompatActivity() {
             itemView.setOnClickListener {
                 if (selectionMode) {
                     toggleSelection(chapter.url)
-                } else if (MangaDownloader.isDownloaded(chapter.name, chapter.url, downloadedNames)) {
+                } else if (downloadedChapterUrls.contains(chapter.url)) {
                     // Si el capitulo esta descargado, abrir el CBZ local (offline).
                     MangaDownloader.chapterFile(mangaTitle, chapter.name, chapter.url)?.let {
-                        openLocalReader(it, chapter.name)
+                        openLocalReader(it, chapter.name, chapter)
                     } ?: openReader(chapter)
                 } else {
                     openReader(chapter)
@@ -605,11 +658,8 @@ class MangaDetailActivity : AppCompatActivity() {
             }
             val openChapterUrl = intent.getStringExtra("open_chapter_url")
             val isCurrent = !openChapterUrl.isNullOrBlank() && chapter.url == openChapterUrl
-            itemView.background = ContextCompat.getDrawable(
-                this@MangaDetailActivity,
-                if (isCurrent) R.drawable.item_current_chapter
-                else android.R.drawable.list_selector_background,
-            )
+            // Drawables cacheados: evita inflar el fondo por cada bind.
+            itemView.background = if (isCurrent) chapterBgCurrent else chapterBgDefault
         }
     }
 

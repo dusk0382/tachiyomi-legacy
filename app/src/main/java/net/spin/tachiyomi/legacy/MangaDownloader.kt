@@ -81,28 +81,34 @@ object MangaDownloader {
         return mangaDir(mangaTitle).deleteRecursively()
     }
 
-    /** Descarga todos los capítulos (los que ya están se saltan). */
+    /**
+     * Descarga todos los capítulos (los que ya están se saltan). Devuelve el
+     * número de capítulos que fallaron (0 = todo correcto), para que la UI no
+     * diga "Descarga completa" cuando en realidad nada se bajó.
+     */
     suspend fun downloadManga(
         source: Source,
         chapters: List<SChapter>,
         mangaTitle: String,
         onProgress: (done: Int, total: Int) -> Unit,
-    ) {
+    ): Int {
         val dir = mangaDir(mangaTitle)
         var done = 0
+        var failed = 0
         val total = chapters.size
 
         for (chapter in chapters) {
             val existing = File(dir, cbzName(chapter.name, chapter.url))
             if (existing.exists() && existing.length() > 0) {
                 done++
-                onProgress(done, total)
-                continue
+            } else if (downloadChapter(source, chapter, dir)) {
+                done++
+            } else {
+                failed++
             }
-            downloadChapter(source, chapter, dir)
-            done++
-            onProgress(done, total)
+            onProgress(done + failed, total)
         }
+        return failed
     }
 
     private suspend fun downloadChapter(source: Source, chapter: SChapter, dir: File): Boolean {
@@ -121,6 +127,11 @@ object MangaDownloader {
                 try {
                     val url = page.imageUrl?.takeIf { it.isNotBlank() } ?: http.getImageUrl(page)
                     if (url.isNullOrBlank()) continue
+                    // Igual que el lector online: dejar resuelta la URL en la página
+                    // para que getImage() no la pida de nuevo ni falle.
+                    if (page.imageUrl.isNullOrBlank()) {
+                        page.imageUrl = url
+                    }
 
                     val response = http.getImage(page, existingSize = 0L)
                     response.use { resp ->

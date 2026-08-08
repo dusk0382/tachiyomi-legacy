@@ -122,6 +122,9 @@ object KotatsuSourceManager {
         // Blindaje extra: jamás registrar una fuente de portugués (cualquiera que sea su contentType).
         .filter { it.locale != "pt" && !it.locale.startsWith("pt-") }
 
+    /** ¿Es una fuente NSFW (hentai/doujinshi)? Las normales no lo son. */
+    fun isNsfwType(source: MangaParserSource): Boolean = source.contentType in excludedTypes
+
     /**
      * Activa/desactiva las fuentes NSFW reconstruyendo los bridges y
      * re-registrandolos en el SourceManager (efecto inmediato).

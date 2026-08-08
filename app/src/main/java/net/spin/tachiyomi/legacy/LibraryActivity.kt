@@ -165,7 +165,9 @@ class LibraryActivity : AppCompatActivity() {
     private fun switchTab(tab: Int) {
         if (currentTab == tab) return
         currentTab = tab
-        isPrivateMode = false
+        // El modo privado (carpeta privada) ya NO se desactiva al cambiar de
+        // pestaña: sigue activo hasta salir con el botón atrás. SecureAddActivate
+        // (permiso para mover) sí se re-arma por pestaña.
         isMoveToPrivateEnabled = false
         updateTabStyles()
         loadTab()
@@ -188,7 +190,9 @@ class LibraryActivity : AppCompatActivity() {
 
     private fun loadTab() {
         when (currentTab) {
-            TAB_LOCAL -> loadLibrary()
+            TAB_LOCAL -> {
+                if (isPrivateMode) applyFilters() else loadLibrary()
+            }
             TAB_FAVORITES -> {
                 adapter.clear()
                 val favorites = (application as App).libraryRepository.getFavorites()

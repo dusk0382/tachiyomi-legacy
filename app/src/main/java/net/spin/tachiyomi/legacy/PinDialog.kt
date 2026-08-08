@@ -2,8 +2,12 @@ package net.spin.tachiyomi.legacy
 
 import android.app.AlertDialog
 import android.content.Context
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
+import android.view.WindowManager
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
@@ -114,7 +118,20 @@ class PinDialog(private val context: Context) {
         btn9.setOnClickListener { onDigitPressed("9") }
         btn0.setOnClickListener { onDigitPressed("0") }
         btnBackspace.setOnClickListener { onBackspace() }
-        
+
+        // Red de seguridad: si el IME del sistema llegara a mostrarse, los
+        // dígitos escritos en pinInput también cuentan (el OnKeyListener solo
+        // recibe teclas físicas, no las del teclado en pantalla).
+        pinInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                if (s.isNullOrEmpty()) return
+                s.last().takeIf { it.isDigit() }?.let { onDigitPressed(it.toString()) }
+                s.clear()
+            }
+        })
+
         // Permitir entrada directa desde teclado físico
         pinInput.setOnKeyListener { _, keyCode, event ->
             if (event.action == android.view.KeyEvent.ACTION_DOWN) {
@@ -134,7 +151,16 @@ class PinDialog(private val context: Context) {
             }
             false
         }
-        
+
         dialog.show()
+
+        // La entrada es con el teclado numérico CUSTOM: ocultar el IME del
+        // sistema. Antes, al abrirse tras escribir "SecureFolderActivate", el
+        // teclado numérico del sistema se superponía al grid y solo dejaba ver
+        // la columna 1-4-7: el resto de números parecían "muertos".
+        pinInput.clearFocus()
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(dialog.window?.decorView?.windowToken, 0)
     }
 }

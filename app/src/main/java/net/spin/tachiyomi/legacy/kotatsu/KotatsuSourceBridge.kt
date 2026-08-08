@@ -244,10 +244,17 @@ class KotatsuSourceBridge(
     }
 
     override suspend fun getImage(page: Page, existingSize: Long): Response {
-        val url = page.imageUrl ?: throw Exception("Page image url is not resolved")
+        // Algunos callers (descargas) llaman getImage sin haber resuelto antes
+        // page.imageUrl (el lector online si lo hace). Resolverlo aquí para que
+        // la descarga funcione igual: antes lanzaba "Page image url is not
+        // resolved" por cada página y solo se creaba una carpeta vacía.
+        val url = page.imageUrl ?: getImageUrl(page)
         val request: Request = GET(url, headers)
         return client.newCall(request).execute()
     }
+
+    /** ¿Es una fuente NSFW (hentai/doujinshi)? Para separarlas en Explorar. */
+    val isNsfwSource: Boolean get() = KotatsuSourceManager.isNsfwType(parserSource)
 
     override fun getFilterList(): FilterList = FilterList()
 }

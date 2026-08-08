@@ -15,6 +15,7 @@ import androidx.recyclerview.widget.RecyclerView
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.SourceManager
 import net.spin.tachiyomi.legacy.databinding.ActivityBrowseBinding
+import net.spin.tachiyomi.legacy.kotatsu.KotatsuSourceBridge
 
 /**
  * Browse activity: lists the sources available from installed extensions,
@@ -89,9 +90,13 @@ class BrowseActivity : AppCompatActivity() {
         binding.emptyText.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
     }
 
-    /** Agrupa las fuentes por idioma, ordenado por nombre de idioma y luego por fuente. */
+    /**
+     * Agrupa las fuentes por idioma (ordenado por nombre de idioma y luego por
+     * fuente), con las NSFW separadas en su propia sección al final.
+     */
     private fun groupByLanguage(sources: List<Source>): List<Row> {
-        val grouped = sources.groupBy { it.lang.ifBlank { "all" } }
+        val (nsfw, normal) = sources.partition { it.isNsfw() }
+        val grouped = normal.groupBy { it.lang.ifBlank { "all" } }
         val languages = grouped.keys.sortedBy { languageName(it) }
 
         return buildList {
@@ -101,8 +106,17 @@ class BrowseActivity : AppCompatActivity() {
                     add(Row.Source(source))
                 }
             }
+            if (nsfw.isNotEmpty()) {
+                add(Row.Header("🔞 NSFW"))
+                nsfw.sortedBy { it.name }.forEach { source ->
+                    add(Row.Source(source))
+                }
+            }
         }
     }
+
+    /** ¿Es una fuente NSFW? (los bridges de Kotatsu lo exponen por contentType). */
+    private fun Source.isNsfw(): Boolean = (this as? KotatsuSourceBridge)?.isNsfwSource == true
 
     override fun onResume() {
         super.onResume()
